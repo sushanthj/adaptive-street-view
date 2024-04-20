@@ -1,0 +1,10 @@
+torch==1.13.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
+torchvision==0.14.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
+torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu117
+open3d
+https://data.dgl.ai/wheels/cu117/dgl-1.0.0%2Bcu117-cp39-cp39-manylinux1_x86_64.whl
+open3d
+opencv-python
+pyvista
+lpips
+scikit-image
