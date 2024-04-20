@@ -2,3 +2,6 @@
 pretrained/
 data/
 clean/
+argoverse_2_maps/
+argoverse_2_seqs/
+dyn_masks/
