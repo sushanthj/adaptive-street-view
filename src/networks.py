@@ -63,15 +63,15 @@ class LiDARNeRF(torch.nn.Module):
 
         # initialize controlnet
         if self.use_controlnet:
-            # controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-canny",
-                                                        #  torch_dtype=torch.float16,
-                                                        #  use_safetensors=True)
-            controlnet = ControlNetModel.from_pretrained("lllyasviel/control_v11f1p_sd15_depth",
-                                                         torch_dtype=torch.float16,
+            controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-canny",
+                                                         torch_dtype=torch.float32,
                                                          use_safetensors=True)
+            # controlnet = ControlNetModel.from_pretrained("lllyasviel/control_v11f1p_sd15_depth",
+            #                                              torch_dtype=torch.float16,
+            #                                              use_safetensors=True)
             self.pipe = StableDiffusionControlNetPipeline.from_pretrained(
                             "runwayml/stable-diffusion-v1-5", controlnet=controlnet,
-                            torch_dtype=torch.float16, use_safetensors=True)
+                            torch_dtype=torch.float32, use_safetensors=True)
 
             self.pipe.scheduler = UniPCMultistepScheduler.from_config(self.pipe.scheduler.config)
             self.pipe.enable_model_cpu_offload()
@@ -442,14 +442,15 @@ class LiDARNeRF(torch.nn.Module):
         diffusion_input = img.clone().detach()
         diffusion_input = (diffusion_input.cpu().numpy() * 255).astype(np.uint8)
         diffusion_input = cv2.cvtColor(diffusion_input, cv2.COLOR_BGR2RGB)
-        # low_threshold = 96
-        # high_threshold = 163
+        diffusion_input = cv2.resize(diffusion_input, (512,512))
+        low_threshold = 96
+        high_threshold = 163
 
-        # canny_image = cv2.Canny(diffusion_input, low_threshold, high_threshold)
-        # canny_image = canny_image[:, :, None]
-        # canny_image = np.concatenate([canny_image, canny_image, canny_image], axis=2)
-        # canny_img = Image.fromarray(canny_image)
-        # output = self.pipe("winter weather", image=canny_img).images[0]
+        canny_image = cv2.Canny(diffusion_input, low_threshold, high_threshold)
+        canny_image = canny_image[:, :, None]
+        canny_image = np.concatenate([canny_image, canny_image, canny_image], axis=2)
+        canny_img = Image.fromarray(canny_image)
+        output = self.pipe("winter weather", image=canny_img).images[0]
 
         
 
@@ -463,27 +464,27 @@ class LiDARNeRF(torch.nn.Module):
         # depth_map = detected_map.permute(2, 0, 1).unsqueeze(0).to('cuda')
         # diffusion_input = Image.fromarray(diffusion_input)
 
-        diffusion_input = Image.open('/home/mrsd_teamh/sush/adaptive-street-view/outputs/img_rgb_gan.png', 'r')
-        
-        def get_depth_map(image, depth_estimator):
-            image = depth_estimator(image)["depth"]
-            image = np.array(image)
-            image = image[:, :, None]
-            image = np.concatenate([image, image, image], axis=2)
-            detected_map = torch.from_numpy(image).float() / 255.0
-            depth_map = detected_map.permute(2, 0, 1)
-            return depth_map
+        # diffusion_input = Image.open('/home/mrsd_teamh/sush/adaptive-street-view/outputs/img_rgb_gan.png', 'r')
 
-        depth_estimator = pipeline("depth-estimation")
-        depth_map = get_depth_map(diffusion_input, depth_estimator).unsqueeze(0).half().to("cuda")
+        # def get_depth_map(image, depth_estimator):
+        #     image = depth_estimator(image)["depth"]
+        #     image = np.array(image)
+        #     image = image[:, :, None]
+        #     image = np.concatenate([image, image, image], axis=2)
+        #     detected_map = torch.from_numpy(image).float() / 255.0
+        #     depth_map = detected_map.permute(2, 0, 1)
+        #     return depth_map
+
+        # depth_estimator = pipeline("depth-estimation")
+        # depth_map = get_depth_map(diffusion_input, depth_estimator).unsqueeze(0).half().to("cuda")
         
 
-        output = self.pipe(
-            "snowy weather", image=diffusion_input, control_image=depth_map).images[0]
-        save_path_2 = f"/home/mrsd_teamh/sush/adaptive-street-view/outputs/depth_gray.png"
+        # output = self.pipe(
+        #     "snowy weather", image=diffusion_input, control_image=depth_map).images[0]
+        save_path_2 = f"/home/mrsd_teamh/sush/adaptive-street-view/outputs/canny_img.png"
         save_path_1 = f"/home/mrsd_teamh/sush/adaptive-street-view/outputs/diffusion_output.png"
 
-        # canny_img.save(save_path_2)
+        canny_img.save(save_path_2)
         output.save(save_path_1)
         ipdb.set_trace()
 
