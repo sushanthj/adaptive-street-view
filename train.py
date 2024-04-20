@@ -9,7 +9,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     # parser.add_argument('--log_id',  type=str, required=True)
-    parser.add_argument('--seq_id',  type=str, default='seq1')
+    parser.add_argument('--seq_id',  type=str, default='seq3')
     parser.add_argument('--name_config',  type=str,  required=True)
     parser.add_argument('--name_data', choices=['clean', 'noisy'], type=str, required=True)
     parser.add_argument('--eval_only', action='store_true')
@@ -27,6 +27,7 @@ if __name__ == '__main__':
 
     setattr(args, 'log_id', cfg['log_id'])
     cfg['name_data'] = str(args.name_data)
+    cfg['controlnet'] = 'true'
 
     trainer = Trainer(cfg, eval_only=args.eval_only)
     trainer.run()

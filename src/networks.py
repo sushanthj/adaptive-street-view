@@ -5,8 +5,17 @@ import glob
 import dgl
 import pix2pix.models as gan_models
 import numpy as np
+import ipdb
+import matplotlib
+from torchvision import transforms
 from pix2pix.options.train_options import TrainOptions as pix2pix_options
 from .utils import positional_encoding, clip_values
+
+from diffusers.utils import load_image, make_image_grid
+from diffusers import StableDiffusionControlNetPipeline, ControlNetModel, UniPCMultistepScheduler
+from transformers import pipeline
+from PIL import Image
+
 eps = 1e-10
 
 
@@ -47,8 +56,25 @@ class LiDARNeRF(torch.nn.Module):
         self.img_size = 256
         self.gan_dilate_kernel = 5
 
+        self.use_controlnet = cfg['controlnet']
+
         # initialize the MLPs
         self.mlp_init()
+
+        # initialize controlnet
+        if self.use_controlnet:
+            # controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-canny",
+                                                        #  torch_dtype=torch.float16,
+                                                        #  use_safetensors=True)
+            controlnet = ControlNetModel.from_pretrained("lllyasviel/control_v11f1p_sd15_depth",
+                                                         torch_dtype=torch.float16,
+                                                         use_safetensors=True)
+            self.pipe = StableDiffusionControlNetPipeline.from_pretrained(
+                            "runwayml/stable-diffusion-v1-5", controlnet=controlnet,
+                            torch_dtype=torch.float16, use_safetensors=True)
+
+            self.pipe.scheduler = UniPCMultistepScheduler.from_config(self.pipe.scheduler.config)
+            self.pipe.enable_model_cpu_offload()
 
         # initialize the cGAN
         opt = pix2pix_options().parse()
@@ -256,6 +282,13 @@ class LiDARNeRF(torch.nn.Module):
         weight = torch.exp(-10 * offset.norm(dim=1))
 
         return {'map_feat':  feat, 'weight': weight}
+    
+    def depth_inv_to_color(self, depth_inv):
+        color_map = matplotlib.colormaps['viridis']
+        depth_color = color_map(depth_inv*3)[:, :, 0:3]
+        depth_color[depth_inv == 0] = 0
+
+        return depth_color
 
     def func_reduce_voxel_to_sample(self, nodes):
 
@@ -383,6 +416,76 @@ class LiDARNeRF(torch.nn.Module):
                'img_depth_error': img_depth_error.reshape(self.img_size, self.img_size, 1),
                'img_rgb_nerf': clip_values(img_rgb).reshape(self.img_size, self.img_size, 3),
                'img_rgb_gt': img_rgb_gt.reshape(self.img_size, self.img_size, 3)}
+
+        # if self.use_controlnet:
+        #     for key in out:
+        #         if 'rgb' in key:
+        #             mask = out[key].sum(axis=2) == 0
+        #             img = (out[key] + 1)/2
+        #             img[mask] = 0
+        #             diffusion_input = img.clone().detach()
+        #             diffusion_input = (diffusion_input.cpu().numpy() * 255).astype(np.uint8)
+        #             diffusion_input = cv2.cvtColor(diffusion_input, cv2.COLOR_BGR2RGB)
+        #             save_path = f"/home/mrsd_teamh/sush/adaptive-street-view/outputs/{key}.png"
+        #             cv2.imwrite(save_path, diffusion_input)
+        #         elif 'depth' in key:
+        #             depth_inv = out[key].cpu().numpy()[:, :, 0]
+        #             diffusion_input = (self.depth_inv_to_color(depth_inv) * 255).astype(np.uint8)
+        #             save_path = f"/home/mrsd_teamh/sush/adaptive-street-view/outputs/{key}.png"
+        #             diffusion_input = cv2.cvtColor(diffusion_input, cv2.COLOR_BGR2RGB)
+        #             cv2.imwrite(save_path, diffusion_input)
+
+
+        mask = out['img_rgb_gan'].sum(axis=2) == 0
+        img = (out['img_rgb_gan'] + 1) / 2
+        img[mask] = 0
+        diffusion_input = img.clone().detach()
+        diffusion_input = (diffusion_input.cpu().numpy() * 255).astype(np.uint8)
+        diffusion_input = cv2.cvtColor(diffusion_input, cv2.COLOR_BGR2RGB)
+        # low_threshold = 96
+        # high_threshold = 163
+
+        # canny_image = cv2.Canny(diffusion_input, low_threshold, high_threshold)
+        # canny_image = canny_image[:, :, None]
+        # canny_image = np.concatenate([canny_image, canny_image, canny_image], axis=2)
+        # canny_img = Image.fromarray(canny_image)
+        # output = self.pipe("winter weather", image=canny_img).images[0]
+
+        
+
+        # depth_img = out['img_depth_inv'].cpu().numpy()[:, :, 0]
+        # depth_img = (depth_img * 255).astype(np.uint8)
+        # image = depth_img[:,:,None]
+        # image = np.concatenate([image, image, image], axis=2)
+        # detected_map = torch.from_numpy(image).float()
+        # ipdb.set_trace()
+        # detected_map /= 255.0
+        # depth_map = detected_map.permute(2, 0, 1).unsqueeze(0).to('cuda')
+        # diffusion_input = Image.fromarray(diffusion_input)
+
+        diffusion_input = Image.open('/home/mrsd_teamh/sush/adaptive-street-view/outputs/img_rgb_gan.png', 'r')
+        
+        def get_depth_map(image, depth_estimator):
+            image = depth_estimator(image)["depth"]
+            image = np.array(image)
+            image = image[:, :, None]
+            image = np.concatenate([image, image, image], axis=2)
+            detected_map = torch.from_numpy(image).float() / 255.0
+            depth_map = detected_map.permute(2, 0, 1)
+            return depth_map
+
+        depth_estimator = pipeline("depth-estimation")
+        depth_map = get_depth_map(diffusion_input, depth_estimator).unsqueeze(0).half().to("cuda")
+        
+
+        output = self.pipe(
+            "snowy weather", image=diffusion_input, control_image=depth_map).images[0]
+        save_path_2 = f"/home/mrsd_teamh/sush/adaptive-street-view/outputs/depth_gray.png"
+        save_path_1 = f"/home/mrsd_teamh/sush/adaptive-street-view/outputs/diffusion_output.png"
+
+        # canny_img.save(save_path_2)
+        output.save(save_path_1)
+        ipdb.set_trace()
 
         if training:
             out['dict_loss'] = dict_loss

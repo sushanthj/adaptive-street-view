@@ -136,7 +136,9 @@ class Trainer:
             for key in data_dict:
                 data_dict[key] = data_dict[key].to(self.device)
 
+            # Forward Pass of Model
             output = self.net(data_dict)
+
             eval_1 = compute_metrics(output['img_rgb_gt'], output['img_rgb_nerf'])
             eval_2 = compute_metrics(output['img_rgb_gt'], output['img_rgb_gan'])
 
