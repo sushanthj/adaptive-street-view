@@ -27,3 +27,14 @@ gdown --fuzzy https://drive.google.com/file/d/1DjfOWRjlplTpANvS4YBebp78WtHpDgRJ/
 
 unzip "*.zip"
 rm *.zip
+
+cd ..
+
+mkdir pretrained && cd pretrained
+# clean data weights
+gdown --fuzzy https://drive.google.com/file/d/1ZjEXD1XigYyJwazdJ8PTD6uM6ell5Xyb/view?usp=sharing
+# noisy data weights
+gdown --fuzzy https://drive.google.com/file/d/1J_G54UECEhBivVDQMVBMo2uslv6GUr7b/view?usp=sharing
+
+unzip "*.zip"
+rm *.zip
