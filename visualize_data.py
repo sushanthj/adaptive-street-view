@@ -31,13 +31,13 @@ def visualize_a_sample(sample, map_lidar):
     edges_voxel_sample = g[('voxel', 'neighbor', 'sample')].edges()
 
     print('Visualize a graph in 3D...this might take a while (red: ray samples, green: aggrgated LiDAR points).')
-    pl = pv.Plotter()
+    pl = pv.Plotter(off_screen=True)
     pl.set_background('white')
     pl.add_mesh(pv.PolyData(xyz_ray_sample), 'gray', render_points_as_spheres=True, point_size=5,  opacity=0.02)
     pl.add_mesh(pv.PolyData(xyz_lidar_pt), 'k', render_points_as_spheres=True, point_size=2,  opacity=1)
     pl.add_mesh(pv.PolyData(cam_center), 'b', render_points_as_spheres=True, point_size=50,  opacity=0.8)
 
-    downsampling_ratio = 1000
+    downsampling_ratio = 10000
 
     ind_pixel_vis = np.arange(0, len(ind_pixel), downsampling_ratio)
     list_invalid_pixel = []
@@ -58,7 +58,8 @@ def visualize_a_sample(sample, map_lidar):
         pl.add_mesh(pv.PolyData(xyz_ray_sample[ind_ray_sample]), 'r',
                     render_points_as_spheres=True, point_size=5,  opacity=1)
 
-    pl.show()
+    print("Viewpoint: ", pl.camera.position)
+    sample_view = pl.screenshot("debug/sample_view_render.png", return_img=True)
 
     print('Visualize the ground truth RGB and LiDAR depth.')
     depth_min = 0.3
@@ -74,10 +75,8 @@ def visualize_a_sample(sample, map_lidar):
     img_to_show = np.zeros((img_size, img_size*2, 3))
     img_to_show[:, 0:img_size] = (img_gt.numpy()+1)/2
     img_to_show[:, img_size:] = img_depth_lidar_inv.reshape(img_size, img_size, 3)
-    # cv2.imshow('RGB and depth GT', img_to_show[:, :, [2, 1, 0]])
-    cv2.imwrite('rgb_and_depth_gt.png', img_to_show[:, :, [2, 1, 0]])
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    #  write to file instead of save
+    cv2.imwrite('debug/rgb_and_depth_gt.png', img_to_show[:, :, [2, 1, 0]]*255)
 
 
 def visualize_cam_pose_on_map(dataloader_val, dataloader_train, map_lidar):
@@ -85,12 +84,12 @@ def visualize_cam_pose_on_map(dataloader_val, dataloader_train, map_lidar):
     print('Visualize the ground truth camera poses (blue: training, red: testing).')
     pose_val = np.linalg.inv(dataloader_val.dataset.data['E'])
     pose_train = np.linalg.inv(dataloader_train.dataset.data['E'])
-    pl = pv.Plotter()
+    pl = pv.Plotter(off_screen=True)
     pl.set_background('white')
     pl.add_mesh(pv.PolyData(map_lidar), 'gray', render_points_as_spheres=True, point_size=1,  opacity=0.5)
     pl.add_mesh(pv.PolyData(pose_val[:, 0:3, 3]), 'r', render_points_as_spheres=True, point_size=10,  opacity=0.5)
     pl.add_mesh(pv.PolyData(pose_train[:, 0:3, 3]), 'b', render_points_as_spheres=True, point_size=5,  opacity=1)
-    pl.show()
+    img = pl.screenshot("debug/cam_pose_on_map.png", return_img=True)
 
 
 if __name__ == '__main__':
@@ -125,4 +124,4 @@ if __name__ == '__main__':
     visualize_a_sample(dataloader_val.dataset[sample_ind_to_visualize], map_lidar)
 
     # to visualize the camera poses on the map of the whole dataset
-    # visualize_cam_pose_on_map(dataloader_val, dataloader_train, map_lidar)
+    visualize_cam_pose_on_map(dataloader_val, dataloader_train, map_lidar)
