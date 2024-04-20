@@ -1,3 +1,4 @@
+gdown
 open3d
 # install the right dgcl from: https://data.dgl.ai/wheels/cu117/repo.html (check cuda an python versions)
 # https://data.dgl.ai/wheels/cu117/dgl-1.0.0%2Bcu117-cp39-cp39-manylinux1_x86_64.whl
