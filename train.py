@@ -8,7 +8,8 @@ from src.trainer import Trainer
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--log_id',  type=str, required=True)
+    # parser.add_argument('--log_id',  type=str, required=True)
+    parser.add_argument('--seq_id',  type=str, default='seq1')
     parser.add_argument('--name_config',  type=str,  required=True)
     parser.add_argument('--name_data', choices=['clean', 'noisy'], type=str, required=True)
     parser.add_argument('--eval_only', action='store_true')
@@ -19,8 +20,12 @@ if __name__ == '__main__':
     cfg.read(os.path.join('configs', args.name_config))
     cfg = cfg['DEFAULT']
 
-    print(cfg)
-    cfg['log_id'] = str(args.log_id)
+    data_cfg = configparser.ConfigParser()
+    data_cfg.read('configs/data_ids.ini')
+    data_cfg = data_cfg['DEFAULT']
+    cfg['log_id'] = data_cfg[args.seq_id]
+
+    setattr(args, 'log_id', cfg['log_id'])
     cfg['name_data'] = str(args.name_data)
 
     trainer = Trainer(cfg, eval_only=args.eval_only)

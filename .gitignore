@@ -2,3 +2,5 @@
 pretrained/
 data/
 debug/
+logs/
+weights/

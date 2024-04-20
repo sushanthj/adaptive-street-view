@@ -12,6 +12,7 @@ class TrainOptions(BaseOptions):
         parser = BaseOptions.initialize(self, parser)
         # visdom and HTML visualization parameters
         parser.add_argument('--log_id', type=str, help='not used')
+        parser.add_argument('--seq_id', type=str, help='not used')
         parser.add_argument('--dataset_type', type=str, help='not used')
         parser.add_argument('--display_freq', type=int, default=400,
                             help='frequency of showing training results on screen')
