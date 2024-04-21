@@ -73,7 +73,7 @@ class LiDARNeRF(torch.nn.Module):
             #                                              use_safetensors=True)
             self.pipe = StableDiffusionControlNetPipeline.from_pretrained(
                             "runwayml/stable-diffusion-v1-5", controlnet=controlnet,
-                            torch_dtype=torch.float32, use_safetensors=True)
+                            torch_dtype=torch.float32, use_safetensors=True).to(self.device)
 
             self.pipe.scheduler = UniPCMultistepScheduler.from_config(self.pipe.scheduler.config)
             self.pipe.enable_model_cpu_offload()
@@ -82,6 +82,12 @@ class LiDARNeRF(torch.nn.Module):
             self.min_step = int(self.num_train_timesteps * 0.02)
             self.max_step = int(self.num_train_timesteps * 0.98)
             self.alphas = self.pipe.scheduler.alphas_cumprod.to(self.device)
+
+            self.precision_t = torch.float32
+            self.vae = self.pipe.vae
+            self.tokenizer = self.pipe.tokenizer
+            self.text_encoder = self.pipe.text_encoder
+            self.unet = self.pipe.unet
 
         # initialize the cGAN
         opt = pix2pix_options().parse()
@@ -94,6 +100,64 @@ class LiDARNeRF(torch.nn.Module):
                                                     list(self.parameters()), lr=float(cfg['lr']))  
         self.pix2pix.use_mask = True
 
+    ############ Fix these ############################################################3
+    @torch.no_grad()
+    def get_text_embeddings(self, prompt):
+        """
+        Get the text embeddings for the prompt.
+
+        Args:
+            prompt (list of string): text prompt to encode.
+        """
+        text_input = self.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.tokenizer.model_max_length,
+            return_tensors="pt",
+        )
+        text_embeddings = self.text_encoder(text_input.input_ids.to(self.device))[0]
+        return text_embeddings
+
+    def encode_imgs(self, img):
+        """
+        Encode the image to latent representation.
+
+        Args:
+            img (tensor): image to encode. shape (N, 3, H, W), range [0, 1]
+
+        Returns:
+            latents (tensor): latent representation. shape (1, 4, 64, 64)
+        """
+        # check the shape of the image should be 512x512
+        assert img.shape[-2:] == (512, 512), f"Image shape should be 512x512, it actually was {img.shape}"
+
+        img = 2 * img - 1  # [0, 1] => [-1, 1]
+
+        posterior = self.vae.encode(img).latent_dist
+        latents = posterior.sample() * self.vae.config.scaling_factor
+
+        return latents
+
+    def decode_latents(self, latents):
+        """
+        Decode the latent representation into RGB image.
+
+        Args:
+            latents (tensor): latent representation. shape (1, 4, 64, 64), range [-1, 1]
+
+        Returns:
+            imgs[0] (np.array): decoded image. shape (512, 512, 3), range [0, 255]
+        """
+        latents = 1 / self.vae.config.scaling_factor * latents
+
+        imgs = self.vae.decode(latents.type(self.precision_t)).sample
+        imgs = (imgs / 2 + 0.5).clamp(0, 1)  # [-1, 1] => [0, 1]
+        imgs = imgs.detach().cpu().permute(0, 2, 3, 1).numpy()  # torch to numpy
+        imgs = (imgs * 255).round()  # [0, 1] => [0, 255]
+        return imgs[0]
+    
+    ##############################################################################
+    
     def mlp_init(self):
 
         in_channels = self.F_m + self.F_xyz * self.freq_PE * 2
