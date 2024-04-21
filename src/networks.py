@@ -133,7 +133,8 @@ class LiDARNeRF(torch.nn.Module):
         """
         # check the shape of the image should be 512x512
         img = img.unsqueeze(0)
-        assert img.shape[-2:] == (256, 256), f"Image shape should be 512x512, it actually was {img.shape}"
+        img = transforms.Resize(512)(img)
+        assert img.shape[-2:] == (512, 512), f"Image shape should be 512x512, it actually was {img.shape}"
 
         img = 2 * img - 1  # [0, 1] => [-1, 1]
 
@@ -493,7 +494,7 @@ class LiDARNeRF(torch.nn.Module):
             diffusion_input = img.clone().detach()
             diffusion_input = (diffusion_input.cpu().numpy() * 255).astype(np.uint8)
             diffusion_input = cv2.cvtColor(diffusion_input, cv2.COLOR_BGR2RGB)
-            # diffusion_input = cv2.resize(diffusion_input, (512,512))
+            diffusion_input = cv2.resize(diffusion_input, (512,512))
             low_threshold = 96
             high_threshold = 163
 
@@ -602,7 +603,7 @@ class LiDARNeRF(torch.nn.Module):
             # Compute SDS loss
             w = 1 - self.alphas[t]
             grad = 1 * w[:, None, None, None] * residual
-            grad = torch.nan_to_num(grad)
+            grad = torch.nan_to_num(grad) * 10
 
             # target function to minimize
             targets = (latents + grad).detach()
