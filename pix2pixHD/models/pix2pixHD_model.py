@@ -95,9 +95,9 @@ class Pix2PixHD(BaseModel):
     
     def backward_D(self):
         # fake detection
-        fake_AB = torch.cat((self.real_A, self.fake_B[:,0:3].detach()), 1)
+        fake_AB = torch.cat((self.real_A, self.fake_B[:,0:3]), 1)
         fake_AB[:,:,self.dyn_mask] = 0
-        pred_fake = self.netD.forward(fake_AB)
+        pred_fake = self.netD.forward(fake_AB.detach())
         self.loss_D_fake = self.criterionGAN(pred_fake, False)
 
         # real

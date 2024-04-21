@@ -120,8 +120,8 @@ class LiDARNeRF(torch.nn.Module):
     def load_ckp(self, path_ckp):
         ckp = torch.load(path_ckp)
         self.load_state_dict(ckp['map_state_dict'])
-        self.pix2pix.netG.load_state_dict(ckp['pix2pix_G_state_dict'])
-        self.pix2pix.netD.load_state_dict(ckp['pix2pix_D_state_dict'])
+        # self.pix2pix.netG.load_state_dict(ckp['pix2pix_G_state_dict'])
+        # self.pix2pix.netD.load_state_dict(ckp['pix2pix_D_state_dict'])
 
     def load_weights(self, path_models, exp_name, pretrained_path=None):
 
@@ -157,7 +157,8 @@ class LiDARNeRF(torch.nn.Module):
         else:
             assert len(list_ckp) == 1
             path_ckp = list_ckp[0]
-            epoch = int(path_ckp.split('/')[-1].split('_')[1].split('.')[0])
+            # epoch = int(path_ckp.split('/')[-1].split('_')[1].split('.')[0])
+            epoch = 0
 
         print('Load parameters from ', path_ckp)
         print(f'Start from epoch {epoch}')

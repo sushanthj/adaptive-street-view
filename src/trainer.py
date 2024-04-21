@@ -73,6 +73,7 @@ class Trainer:
 
         self.net = LiDARNeRF(cfg, map_lidar).to(cfg['device'])
         e_start = self.net.load_weights(cfg['path_weights'], exp_name, pretrained_path=cfg['path_pretrained_weight'])
+        exp_name = f"{exp_name_data}_{exp_name_model}_{cfg['log_id'][:4]}_pixhd"
 
         self.e_start = e_start
         self.e_end = int(cfg['num_epoch'])
@@ -168,4 +169,4 @@ class Trainer:
             self.log_writer.add_scalar(f'{m}/mean_stage_2', np.mean(dict_metrics_2[m]), e_val)
             self.log_writer.add_scalar(f'{m}/std_stage_2', np.std(dict_metrics_2[m]), e_val)
 
-        # self.net.save_weights(e_val, self.exp_name, self.path_weights, np.mean(dict_metrics_2['psnr']))
+        self.net.save_weights(e_val, self.exp_name, self.path_weights, np.mean(dict_metrics_2['psnr']))
