@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.networks import LiDARNeRF
 from .utils import depth_inv_to_color
 from skimage.metrics import structural_similarity
+from tqdm import tqdm
 
 loss_fn_alex = lpips.LPIPS(net='alex')
 
@@ -107,7 +108,7 @@ class Trainer:
 
     def run_train(self, dataloader):
         print('train')
-        for i, batch in enumerate(dataloader):
+        for i, batch in tqdm(enumerate(dataloader)):
             # only support batch size == 1
             assert len(batch) == 1
             data_dict = batch[0]
