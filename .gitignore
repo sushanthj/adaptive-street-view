@@ -4,3 +4,4 @@ data/
 debug/
 logs/
 weights/
+checkpoints/

@@ -3,9 +3,10 @@ import os
 import cv2
 import glob
 import dgl
-import pix2pix.models as gan_models
+import pix2pixHD.models.pix2pixHD_model as gan_model
 import numpy as np
-from pix2pix.options.train_options import TrainOptions as pix2pix_options
+# from pix2pix.options.train_options import TrainOptions as pix2pix_options
+from pix2pixHD.options.train_options import TrainOptions as pix2pixHD_options
 from .utils import positional_encoding, clip_values
 eps = 1e-10
 
@@ -51,11 +52,14 @@ class LiDARNeRF(torch.nn.Module):
         self.mlp_init()
 
         # initialize the cGAN
-        opt = pix2pix_options().parse()
+        # opt = pix2pixHD_options().initialize().parse()
+        opt = pix2pixHD_options()
+        opt.initialize()
+        opt = opt.parse()
         if cfg['device'] == 'cpu':
             opt.gpu_ids = []
 
-        self.pix2pix = gan_models.pix2pix_model.Pix2PixModel(opt)
+        self.pix2pix = gan_model.Pix2PixHD(opt)
         self.pix2pix.gan_loss_weight = float(cfg['gan_loss_weight'])
         self.pix2pix.optimizer_G = torch.optim.Adam(list(self.pix2pix.netG.parameters()) +
                                                     list(self.parameters()), lr=float(cfg['lr']))  
