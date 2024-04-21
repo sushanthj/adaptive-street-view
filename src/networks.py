@@ -155,9 +155,25 @@ class LiDARNeRF(torch.nn.Module):
         imgs = imgs.detach().cpu().permute(0, 2, 3, 1).numpy()  # torch to numpy
         imgs = (imgs * 255).round()  # [0, 1] => [0, 255]
         return imgs[0]
-    
+
+
+    # calculate the text embs.
+    @torch.no_grad()
+    def prepare_embeddings(self, prompt, neg_prompt="", view_dependent=False):
+        # text embeddings (stable-diffusion)
+        if isinstance(prompt, str):
+            prompt = [prompt]
+        if isinstance(neg_prompt, str):
+            neg_prompt = [neg_prompt]
+        embeddings = {}
+        embeddings["default"] = self.get_text_embeddings(prompt)  # shape [1, 77, 1024]
+        embeddings["uncond"] = self.get_text_embeddings(neg_prompt)  # shape [1, 77, 1024]
+        if view_dependent:
+            for d in ["front", "side", "back"]:
+                embeddings[d] = self.get_text_embeddings([f"{prompt}, {d} view"])
+        return embeddings
     ##############################################################################
-    
+
     def mlp_init(self):
 
         in_channels = self.F_m + self.F_xyz * self.freq_PE * 2
@@ -470,7 +486,7 @@ class LiDARNeRF(torch.nn.Module):
             canny_image = canny_image[:, :, None]
             canny_image = np.concatenate([canny_image, canny_image, canny_image], axis=2)
             canny_img = Image.fromarray(canny_image)
-            img_target = self.pipe("overcast weather", image=canny_img).images[0]
+            # img_target = self.pipe("overcast weather", image=canny_img).images[0]
 
             # get nerf rgb in right format
             nerf_rgb = img.clone()
@@ -487,8 +503,10 @@ class LiDARNeRF(torch.nn.Module):
             noise = torch.randn_like(nerf_rgb).to(self.device)
             x_t = self.pipe.scheduler.add_noise(nerf_rgb, noise, t)
             # predict the denoised latents using the text embeddings
-            # predicted_noise = self.pipe.unet.forward(sample=x_t, timestep=t).sample
-            
+            text_embeddings = self.get_text_embeddings("overcast weather")
+            predicted_noise_uncond = self.unet.forward(sample=x_t, timestep=t, encoder_hidden_states=text_embeddings).sample
+            guidance_scale = 100
+            predicted_noise = guidance_scale * predicted_noise + (1 - guidance_scale) * predicted_noise_uncond
 
             residual = noise - predicted_noise
 
@@ -505,16 +523,20 @@ class LiDARNeRF(torch.nn.Module):
         # Do SDS loss based on diffusion output
         if training:
             # compute depth loss
-            loss_d = depth_error.mean()  
+            loss_d = depth_error.mean()
             dict_loss['loss_lidar_depth'] = loss_d
 
             # compute stage 1 rgb loss, remove dynamic objs
             dyn_mask = input_dict['img_dyn_mask'].flatten()[ind_pixel_valid]
             loss_rgb_1 = self.nerf_rgb_loss_weight * self.l2loss(rgb[~dyn_mask],
                                                                  img_rgb_gt[ind_pixel_valid][~dyn_mask])
-            dict_loss['loss_rgb_1'] = loss_rgb_1
-
             sds_loss = 0.5 * F.mse_loss(nerf_rgb.float(), targets, reduction='mean')
+
+            dict_loss['loss_rgb_1'] = loss_rgb_1
+            dict_loss['loss_sds'] = sds_loss
+            dict_loss['loss_depth_error'] = loss_d
+
+            total_loss = loss_rgb_1 + sds_loss + loss_d
 
         out = {
             #    'img_rgb_gan': clip_values(img_rgb_gan).reshape(self.img_size, self.img_size, 3),
@@ -545,5 +567,7 @@ class LiDARNeRF(torch.nn.Module):
 
         if training:
             out['dict_loss'] = dict_loss
+            return out, total_loss
 
-        return out
+        else:
+            return out

@@ -8,6 +8,7 @@ from src.dataloader import get_data_loader
 from torch.utils.tensorboard import SummaryWriter
 from src.networks import LiDARNeRF
 from .utils import depth_inv_to_color
+from optimizer import Adan
 from skimage.metrics import structural_similarity
 
 loss_fn_alex = lpips.LPIPS(net='alex')
@@ -90,6 +91,19 @@ class Trainer:
         self.num_iter = 0
         self.eval_only = eval_only
 
+        # Step 3. Create optimizer and training parameters
+        lr = 1e-3
+        self.optimizer = Adan(
+            self.net.parameters(),
+            lr=5 * lr,
+            eps=1e-8,
+            weight_decay=2e-5,
+            max_grad_norm=5.0,
+            foreach=False,
+        )
+        self.lr_scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lambda iter: 1)
+        self.scaler = torch.cuda.amp.GradScaler()
+
     def run(self):
 
         with torch.no_grad():
@@ -108,6 +122,7 @@ class Trainer:
     def run_train(self, dataloader):
         print('train')
         for i, batch in enumerate(dataloader):
+            self.optimizer.zero_grad()
             # only support batch size == 1
             assert len(batch) == 1
             data_dict = batch[0]
@@ -115,11 +130,29 @@ class Trainer:
                 data_dict[key] = data_dict[key].to(self.device)
 
             self.num_iter += 1
-            output = self.net(data_dict, training=True)
+            output, loss = self.net(data_dict, training=True)
 
             if self.num_iter % self.iter_log_interval == 0:
                 for k in output['dict_loss'].keys():
                     self.log_writer.add_scalar(f'train/{k}', output['dict_loss'][k], self.num_iter)
+
+            if self.num_iter % 100 == 0:
+                for key in output:
+                    if 'depth' in key:
+                        depth_inv = output[key].cpu().numpy()[:, :, 0]
+                        depth_color = depth_inv_to_color(depth_inv)
+                        self.log_writer.add_image(f'train_img_{key}', torch.from_numpy(depth_color).permute(2, 0, 1), self.num_iter)
+                    elif 'rgb' in key:
+                        mask = output[key].sum(axis=2) == 0
+                        img = (output[key] + 1)/2
+                        img[mask] = 0
+                        self.log_writer.add_image(f'train_img_{key}', img.permute(2, 0, 1), self.num_iter)
+
+            # Backward pass
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            self.lr_scheduler.step()
 
     def run_val(self, dataloader, e_val):
         print('val')
