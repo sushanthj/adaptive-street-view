@@ -8,7 +8,7 @@ from src.dataloader import get_data_loader
 from torch.utils.tensorboard import SummaryWriter
 from src.networks import LiDARNeRF
 from .utils import depth_inv_to_color
-from optimizer import Adan
+from .optimizer import Adan
 from skimage.metrics import structural_similarity
 
 loss_fn_alex = lpips.LPIPS(net='alex')
@@ -106,8 +106,8 @@ class Trainer:
 
     def run(self):
 
-        with torch.no_grad():
-            self.run_val(self.dataloader_val, self.e_start-1)
+        # with torch.no_grad():
+        #     self.run_val(self.dataloader_val, self.e_start-1)
 
         if not self.eval_only:
             for e in range(self.e_start, self.e_end):
@@ -132,6 +132,7 @@ class Trainer:
             self.num_iter += 1
             output, loss = self.net(data_dict, training=True)
 
+            # Save Images
             if self.num_iter % self.iter_log_interval == 0:
                 for k in output['dict_loss'].keys():
                     self.log_writer.add_scalar(f'train/{k}', output['dict_loss'][k], self.num_iter)
