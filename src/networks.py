@@ -15,6 +15,8 @@ from diffusers.utils import load_image, make_image_grid
 from diffusers import StableDiffusionControlNetPipeline, ControlNetModel, UniPCMultistepScheduler
 from transformers import pipeline
 from PIL import Image
+from copy import deepcopy
+import torch.nn.functional as F
 
 eps = 1e-10
 
@@ -75,6 +77,11 @@ class LiDARNeRF(torch.nn.Module):
 
             self.pipe.scheduler = UniPCMultistepScheduler.from_config(self.pipe.scheduler.config)
             self.pipe.enable_model_cpu_offload()
+
+            self.num_train_timesteps = self.pipe.scheduler.config.num_train_timesteps
+            self.min_step = int(self.num_train_timesteps * 0.02)
+            self.max_step = int(self.num_train_timesteps * 0.98)
+            self.alphas = self.pipe.scheduler.alphas_cumprod.to(self.device)
 
         # initialize the cGAN
         opt = pix2pix_options().parse()
@@ -354,67 +361,103 @@ class LiDARNeRF(torch.nn.Module):
         img_rgb_gt[ind_pixel_dilate] = input_dict['img_rgb_gt'].reshape(-1, 3)[ind_pixel_dilate]
 
         # for pix2pix input
-        img_input = torch.cat([img_rgb, img_depth_inv], axis=1).reshape(self.img_size, self.img_size, 4)
-        img_target = torch.cat([img_rgb_gt, img_depth_inv], axis=1).reshape(self.img_size, self.img_size, 4)
+        # NOTE: image target will be defined by diffusion now
+        # img_input = torch.cat([img_rgb, img_depth_inv], axis=1).reshape(self.img_size, self.img_size, 4)
+        # img_target = torch.cat([img_rgb_gt, img_depth_inv], axis=1).reshape(self.img_size, self.img_size, 4)
 
-        self.pix2pix.set_input({'A': img_input.permute(2, 0, 1).unsqueeze(0),
-                                'B': img_target.permute(2, 0, 1).unsqueeze(0),
-                                'A_paths': '',
-                                'B_paths': '',
-                                })
+        # self.pix2pix.set_input({'A': img_input.permute(2, 0, 1).unsqueeze(0),
+        #                         'B': img_target.permute(2, 0, 1).unsqueeze(0),
+        #                         'A_paths': '',
+        #                         'B_paths': '',
+        #                         })
 
         # remove dynamic obj from cGAN losses
-        self.pix2pix.dyn_mask = input_dict['img_dyn_mask']
+        # self.pix2pix.dyn_mask = input_dict['img_dyn_mask']
 
         # remove invalid pixels from cGAN output
-        self.pix2pix.mask = torch.zeros(self.img_size, self.img_size, dtype=torch.bool,
-                                        device=self.device).flatten()
-        self.pix2pix.mask[ind_pixel_dilate] = True
-        self.pix2pix.mask = self.pix2pix.mask.reshape(self.img_size, self.img_size)
+        # self.pix2pix.mask = torch.zeros(self.img_size, self.img_size, dtype=torch.bool,
+        #                                 device=self.device).flatten()
+        # self.pix2pix.mask[ind_pixel_dilate] = True
+        # self.pix2pix.mask = self.pix2pix.mask.reshape(self.img_size, self.img_size)
 
         # run cGAN
-        self.pix2pix.forward(training)
-        img_rgb_gan = self.pix2pix.fake_B[0][0:3].permute(1, 2, 0)
+        # self.pix2pix.forward(training)
+        # img_rgb_gan = self.pix2pix.fake_B[0][0:3].permute(1, 2, 0)
 
         mask_d_loss = (depth_l > self.depth_min) * (torch.abs(depth_l-depth) > self.depth_loss_error_range)
         depth_error = torch.zeros_like(depth)
         depth_error[mask_d_loss] = torch.abs(1/(depth[mask_d_loss]+eps)-1/depth_l[mask_d_loss])
         img_depth_error = self.build_img_depth(depth_error, ind_pixel_valid, inverse=False)
 
-        # if training, compute the losses and do backward
-        if training:
-            # add losses to the generator loss in cGAN
-            self.pix2pix.loss_G = 0
+        with torch.no_grad():
+            img_rgb_nerf = clip_values(img_rgb).reshape(self.img_size, self.img_size, 3)
 
+            mask = img_rgb_nerf.sum(axis=2) == 0
+            img = (img_rgb_nerf + 1) / 2
+            img[mask] = 0
+            diffusion_input = img.clone().detach()
+            diffusion_input = (diffusion_input.cpu().numpy() * 255).astype(np.uint8)
+            diffusion_input = cv2.cvtColor(diffusion_input, cv2.COLOR_BGR2RGB)
+            diffusion_input = cv2.resize(diffusion_input, (512,512))
+            low_threshold = 96
+            high_threshold = 163
+
+            canny_image = cv2.Canny(diffusion_input, low_threshold, high_threshold)
+            canny_image = canny_image[:, :, None]
+            canny_image = np.concatenate([canny_image, canny_image, canny_image], axis=2)
+            canny_img = Image.fromarray(canny_image)
+            img_target = self.pipe("overcast weather", image=canny_img).images[0]
+
+            # get nerf rgb in right format
+            nerf_rgb = img.clone()
+
+            # add noise to init image
+            t = torch.randint(
+                self.min_step,
+                self.max_step + 1,
+                (nerf_rgb.shape[0],),
+                dtype=torch.long,
+                device=self.device,
+            )
+
+            noise = torch.randn_like(nerf_rgb).to(self.device)
+            x_t = self.pipe.scheduler.add_noise(nerf_rgb, noise, t)
+            # predict the denoised latents using the text embeddings
+            # predicted_noise = self.pipe.unet.forward(sample=x_t, timestep=t).sample
+            
+
+            residual = noise - predicted_noise
+
+            # Compute SDS loss
+            w = 1 - self.alphas[t]
+            ### YOUR CODE HERE ###
+            grad = 1 * w[:, None, None, None] * residual
+            grad = torch.nan_to_num(grad)
+
+            # target function to minimize
+            targets = (nerf_rgb + grad).detach()
+
+        # if training, compute the losses and do backward
+        # Do SDS loss based on diffusion output
+        if training:
             # compute depth loss
             loss_d = depth_error.mean()  
             dict_loss['loss_lidar_depth'] = loss_d
-            self.pix2pix.loss_G += self.nerf_depth_loss_weight * loss_d
 
             # compute stage 1 rgb loss, remove dynamic objs
             dyn_mask = input_dict['img_dyn_mask'].flatten()[ind_pixel_valid]
             loss_rgb_1 = self.nerf_rgb_loss_weight * self.l2loss(rgb[~dyn_mask],
                                                                  img_rgb_gt[ind_pixel_valid][~dyn_mask])
             dict_loss['loss_rgb_1'] = loss_rgb_1
-            self.pix2pix.loss_G += loss_rgb_1
 
-            # compute stage 2 rgb loss, remove dynamic objs
-            dyn_mask_dilate = input_dict['img_dyn_mask'].flatten()[ind_pixel_dilate]
-            rgb_gan = img_rgb_gan.reshape(-1, 3)
-            self.pix2pix.loss_G += self.gan_color_loss_weight * self.l2loss(rgb_gan[ind_pixel_dilate]
-                                                                            [~dyn_mask_dilate], img_rgb_gt[ind_pixel_dilate][~dyn_mask_dilate])
+            sds_loss = 0.5 * F.mse_loss(nerf_rgb.float(), targets, reduction='mean')
 
-            # gan_loss_weight is applied inside the model
-            # do backward
-            self.pix2pix.optimize_parameters(self.map_feat, do_forward=False)
-            dict_loss['loss_G'] = self.pix2pix.loss_G
-            dict_loss['loss_D'] = self.pix2pix.loss_D
-
-        out = {'img_rgb_gan': clip_values(img_rgb_gan).reshape(self.img_size, self.img_size, 3),
+        out = {
+            #    'img_rgb_gan': clip_values(img_rgb_gan).reshape(self.img_size, self.img_size, 3),
                'img_depth_inv': img_depth_inv.reshape(self.img_size, self.img_size, 1),
                'img_depth_l_inv': img_depth_l_inv.reshape(self.img_size, self.img_size, 1),
                'img_depth_error': img_depth_error.reshape(self.img_size, self.img_size, 1),
-               'img_rgb_nerf': clip_values(img_rgb).reshape(self.img_size, self.img_size, 3),
+               'img_rgb_nerf': img_rgb_nerf,
                'img_rgb_gt': img_rgb_gt.reshape(self.img_size, self.img_size, 3)}
 
         # if self.use_controlnet:
@@ -435,58 +478,6 @@ class LiDARNeRF(torch.nn.Module):
         #             diffusion_input = cv2.cvtColor(diffusion_input, cv2.COLOR_BGR2RGB)
         #             cv2.imwrite(save_path, diffusion_input)
 
-
-        mask = out['img_rgb_gan'].sum(axis=2) == 0
-        img = (out['img_rgb_gan'] + 1) / 2
-        img[mask] = 0
-        diffusion_input = img.clone().detach()
-        diffusion_input = (diffusion_input.cpu().numpy() * 255).astype(np.uint8)
-        diffusion_input = cv2.cvtColor(diffusion_input, cv2.COLOR_BGR2RGB)
-        diffusion_input = cv2.resize(diffusion_input, (512,512))
-        low_threshold = 96
-        high_threshold = 163
-
-        canny_image = cv2.Canny(diffusion_input, low_threshold, high_threshold)
-        canny_image = canny_image[:, :, None]
-        canny_image = np.concatenate([canny_image, canny_image, canny_image], axis=2)
-        canny_img = Image.fromarray(canny_image)
-        output = self.pipe("winter weather", image=canny_img).images[0]
-
-        
-
-        # depth_img = out['img_depth_inv'].cpu().numpy()[:, :, 0]
-        # depth_img = (depth_img * 255).astype(np.uint8)
-        # image = depth_img[:,:,None]
-        # image = np.concatenate([image, image, image], axis=2)
-        # detected_map = torch.from_numpy(image).float()
-        # ipdb.set_trace()
-        # detected_map /= 255.0
-        # depth_map = detected_map.permute(2, 0, 1).unsqueeze(0).to('cuda')
-        # diffusion_input = Image.fromarray(diffusion_input)
-
-        # diffusion_input = Image.open('/home/mrsd_teamh/sush/adaptive-street-view/outputs/img_rgb_gan.png', 'r')
-
-        # def get_depth_map(image, depth_estimator):
-        #     image = depth_estimator(image)["depth"]
-        #     image = np.array(image)
-        #     image = image[:, :, None]
-        #     image = np.concatenate([image, image, image], axis=2)
-        #     detected_map = torch.from_numpy(image).float() / 255.0
-        #     depth_map = detected_map.permute(2, 0, 1)
-        #     return depth_map
-
-        # depth_estimator = pipeline("depth-estimation")
-        # depth_map = get_depth_map(diffusion_input, depth_estimator).unsqueeze(0).half().to("cuda")
-        
-
-        # output = self.pipe(
-        #     "snowy weather", image=diffusion_input, control_image=depth_map).images[0]
-        save_path_2 = f"/home/mrsd_teamh/sush/adaptive-street-view/outputs/canny_img.png"
-        save_path_1 = f"/home/mrsd_teamh/sush/adaptive-street-view/outputs/diffusion_output.png"
-
-        canny_img.save(save_path_2)
-        output.save(save_path_1)
-        ipdb.set_trace()
 
         if training:
             out['dict_loss'] = dict_loss
