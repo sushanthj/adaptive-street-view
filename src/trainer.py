@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.networks import LiDARNeRF
 from .utils import depth_inv_to_color
 from .optimizer import Adan
+from tqdm import tqdm
 from skimage.metrics import structural_similarity
 
 loss_fn_alex = lpips.LPIPS(net='alex')
@@ -65,7 +66,7 @@ class Trainer:
         exp_name_model = get_exp_name_model(cfg)
 
         exp_name = f"{exp_name_data}_{exp_name_model}_{cfg['log_id'][:4]}"
-        self.log_writer = SummaryWriter(os.path.join(cfg['path_log'], 'logs', exp_name))
+        
         path_lidar_map = os.path.join(cfg['path_data_folder'], 'argoverse_2_maps', f"{cfg['log_id']}_{cfg['name_data']}.ply")
 
         print('Load lidar map from', path_lidar_map)
@@ -73,6 +74,8 @@ class Trainer:
 
         self.net = LiDARNeRF(cfg, map_lidar).to(cfg['device'])
         e_start = self.net.load_weights(cfg['path_weights'], exp_name, pretrained_path=cfg['path_pretrained_weight'])
+        exp_name = f"{exp_name_data}_{exp_name_model}_{cfg['log_id'][:4]}_sds"
+        self.log_writer = SummaryWriter(os.path.join(cfg['path_log'], 'logs', exp_name))
 
         self.e_start = e_start
         self.e_end = int(cfg['num_epoch'])
@@ -121,7 +124,7 @@ class Trainer:
 
     def run_train(self, dataloader):
         print('train')
-        for i, batch in enumerate(dataloader):
+        for i, batch in tqdm(enumerate(dataloader)):
             self.optimizer.zero_grad()
             # only support batch size == 1
             assert len(batch) == 1
@@ -136,18 +139,7 @@ class Trainer:
             if self.num_iter % self.iter_log_interval == 0:
                 for k in output['dict_loss'].keys():
                     self.log_writer.add_scalar(f'train/{k}', output['dict_loss'][k], self.num_iter)
-
-            if self.num_iter % 100 == 0:
-                for key in output:
-                    if 'depth' in key:
-                        depth_inv = output[key].cpu().numpy()[:, :, 0]
-                        depth_color = depth_inv_to_color(depth_inv)
-                        self.log_writer.add_image(f'train_img_{key}', torch.from_numpy(depth_color).permute(2, 0, 1), self.num_iter)
-                    elif 'rgb' in key:
-                        mask = output[key].sum(axis=2) == 0
-                        img = (output[key] + 1)/2
-                        img[mask] = 0
-                        self.log_writer.add_image(f'train_img_{key}', img.permute(2, 0, 1), self.num_iter)
+                    print(k, output['dict_loss'][k].item())
 
             # Backward pass
             self.scaler.scale(loss).backward()
@@ -174,23 +166,25 @@ class Trainer:
             output = self.net(data_dict)
 
             eval_1 = compute_metrics(output['img_rgb_gt'], output['img_rgb_nerf'])
-            eval_2 = compute_metrics(output['img_rgb_gt'], output['img_rgb_gan'])
+            # eval_2 = compute_metrics(output['img_rgb_gt'], output['img_rgb_gan'])
 
             for m in self.list_metric:
                 dict_metrics_1[m].append(eval_1[m])
-                dict_metrics_2[m].append(eval_2[m])
+                # dict_metrics_2[m].append(eval_2[m])
 
             if (i+1) % 5 == 0:  # just to visualize some val results
                 for key in output:
                     if 'depth' in key:  # show inverse depth map
                         depth_inv = output[key].cpu().numpy()[:, :, 0]
                         depth_color = depth_inv_to_color(depth_inv)
+
                         self.log_writer.add_image(f'val_img_{key}/{i}', torch.from_numpy(depth_color).permute(2, 0, 1), self.num_iter)
                     elif 'rgb' in key:
                         mask = output[key].sum(axis=2) == 0
                         img = (output[key] + 1)/2
                         img[mask] = 0
-                        self.log_writer.add_image(f'val_img_{key}/{i}', img.permute(2, 0, 1), self.num_iter)
+                        img = img.permute(2, 0, 1).cpu()
+                        self.log_writer.add_image(f'val_img_{key}/{i}', img, self.num_iter)
 
         for m in self.list_metric:
             print(m, f'{np.mean(dict_metrics_1[m]):.4f}',
@@ -203,4 +197,4 @@ class Trainer:
             self.log_writer.add_scalar(f'{m}/mean_stage_2', np.mean(dict_metrics_2[m]), e_val)
             self.log_writer.add_scalar(f'{m}/std_stage_2', np.std(dict_metrics_2[m]), e_val)
 
-        # self.net.save_weights(e_val, self.exp_name, self.path_weights, np.mean(dict_metrics_2['psnr']))
+        self.net.save_weights(e_val, self.exp_name, self.path_weights, np.mean(dict_metrics_2['psnr']))

@@ -65,40 +65,43 @@ class LiDARNeRF(torch.nn.Module):
 
         # initialize controlnet
         if self.use_controlnet:
-            controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-canny",
-                                                         torch_dtype=torch.float16,
-                                                         use_safetensors=True)
-            # controlnet = ControlNetModel.from_pretrained("lllyasviel/control_v11f1p_sd15_depth",
-            #                                              torch_dtype=torch.float16,
-            #                                              use_safetensors=True)
-            self.pipe = StableDiffusionControlNetPipeline.from_pretrained(
-                            "runwayml/stable-diffusion-v1-5", controlnet=controlnet,
-                            torch_dtype=torch.float16, use_safetensors=True).to(self.device)
+            with torch.no_grad():
+                controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-canny",
+                                                            torch_dtype=torch.float32,
+                                                            use_safetensors=True)
+                # controlnet = ControlNetModel.from_pretrained("lllyasviel/control_v11f1p_sd15_depth",
+                #                                              torch_dtype=torch.float32,
+                #                                              use_safetensors=True)
+                self.pipe = StableDiffusionControlNetPipeline.from_pretrained(
+                                "runwayml/stable-diffusion-v1-5", controlnet=controlnet,
+                                torch_dtype=torch.float32, use_safetensors=True).to(self.device)
 
-            self.pipe.scheduler = UniPCMultistepScheduler.from_config(self.pipe.scheduler.config)
-            self.pipe.enable_model_cpu_offload()
+                self.pipe.scheduler = UniPCMultistepScheduler.from_config(self.pipe.scheduler.config)
+                self.pipe.enable_model_cpu_offload()
 
-            self.num_train_timesteps = self.pipe.scheduler.config.num_train_timesteps
-            self.min_step = int(self.num_train_timesteps * 0.02)
-            self.max_step = int(self.num_train_timesteps * 0.98)
-            self.alphas = self.pipe.scheduler.alphas_cumprod.to(self.device)
+                self.num_train_timesteps = self.pipe.scheduler.config.num_train_timesteps
+                self.min_step = int(self.num_train_timesteps * 0.02)
+                self.max_step = int(self.num_train_timesteps * 0.98)
+                self.alphas = self.pipe.scheduler.alphas_cumprod.to(self.device)
 
-            self.precision_t = torch.float16
-            self.vae = self.pipe.vae
-            self.tokenizer = self.pipe.tokenizer
-            self.text_encoder = self.pipe.text_encoder
-            self.unet = self.pipe.unet
+                # self.precision_t = torch.float32
+                # self.vae = self.pipe.vae
+                # self.tokenizer = self.pipe.tokenizer
+                # self.text_encoder = self.pipe.text_encoder
+
+        # for key, val in self.pipe.components.items():
+        #     print(f"{key} : {val}")
 
         # initialize the cGAN
         opt = pix2pix_options().parse()
         if cfg['device'] == 'cpu':
             opt.gpu_ids = []
 
-        self.pix2pix = gan_models.pix2pix_model.Pix2PixModel(opt)
-        self.pix2pix.gan_loss_weight = float(cfg['gan_loss_weight'])
-        self.pix2pix.optimizer_G = torch.optim.Adam(list(self.pix2pix.netG.parameters()) +
-                                                    list(self.parameters()), lr=float(cfg['lr']))  
-        self.pix2pix.use_mask = True
+        # self.pix2pix = gan_models.pix2pix_model.Pix2PixModel(opt)
+        # self.pix2pix.gan_loss_weight = float(cfg['gan_loss_weight'])
+        # self.pix2pix.optimizer_G = torch.optim.Adam(list(self.pix2pix.netG.parameters()) +
+        #                                             list(self.parameters()), lr=float(cfg['lr']))  
+        # self.pix2pix.use_mask = True
 
     ############ Fix these ############################################################3
     @torch.no_grad()
@@ -129,12 +132,13 @@ class LiDARNeRF(torch.nn.Module):
             latents (tensor): latent representation. shape (1, 4, 64, 64)
         """
         # check the shape of the image should be 512x512
+        img = img.unsqueeze(0)
         assert img.shape[-2:] == (256, 256), f"Image shape should be 512x512, it actually was {img.shape}"
 
         img = 2 * img - 1  # [0, 1] => [-1, 1]
 
-        posterior = self.vae.encode(img).latent_dist
-        latents = posterior.sample() * self.vae.config.scaling_factor
+        posterior = self.pipe.vae.encode(img).latent_dist
+        latents = posterior.sample() * self.pipe.vae.config.scaling_factor
 
         return latents
 
@@ -229,8 +233,8 @@ class LiDARNeRF(torch.nn.Module):
     def load_ckp(self, path_ckp):
         ckp = torch.load(path_ckp)
         self.load_state_dict(ckp['map_state_dict'])
-        self.pix2pix.netG.load_state_dict(ckp['pix2pix_G_state_dict'])
-        self.pix2pix.netD.load_state_dict(ckp['pix2pix_D_state_dict'])
+        # self.pix2pix.netG.load_state_dict(ckp['pix2pix_G_state_dict'])
+        # self.pix2pix.netD.load_state_dict(ckp['pix2pix_D_state_dict'])
 
     def load_weights(self, path_models, exp_name, pretrained_path=None):
 
@@ -271,17 +275,18 @@ class LiDARNeRF(torch.nn.Module):
         print('Load parameters from ', path_ckp)
         print(f'Start from epoch {epoch}')
 
-        # self.load_ckp(path_ckp)
+        self.load_ckp(path_ckp)
 
         # return epoch+1
-        return 1
+        return 0
 
     def get_state_dict(self, e):
         return {
             'epoch': e,
             'map_state_dict': self.state_dict(),
-            'pix2pix_G_state_dict': self.pix2pix.netG.state_dict(),
-            'pix2pix_D_state_dict': self.pix2pix.netD.state_dict()}
+            # 'pix2pix_G_state_dict': self.pix2pix.netG.state_dict(),
+            # 'pix2pix_D_state_dict': self.pix2pix.netD.state_dict()
+            }
 
     def save_weights(self, e, exp_name, path_models, current_psnr=0):
 
@@ -306,6 +311,8 @@ class LiDARNeRF(torch.nn.Module):
         if previous_latest_epoch <= e:
             if len(list_existing_ckp) == 1:
                 os.remove(list_existing_ckp[0])
+            
+            # print(list(self.state_dict().keys()))
 
             torch.save(self.get_state_dict(e),
                        os.path.join(path_ckp, f'latest_{e}.ckp'))
@@ -476,10 +483,10 @@ class LiDARNeRF(torch.nn.Module):
         img[mask] = 0
 
         # get nerf rgb in right format
-        nerf_rgb = img.clone()
+        nerf_rgb = img.clone().permute(2, 0, 1)
         
         # Convert NeRF RGB to latents
-        latents = self.encode_imgs(nerf_rgb)
+        latents_init = self.encode_imgs(nerf_rgb)
 
         with torch.no_grad():
             
@@ -492,7 +499,7 @@ class LiDARNeRF(torch.nn.Module):
 
             canny_image = cv2.Canny(diffusion_input, low_threshold, high_threshold)
             canny_image = canny_image[:, :, None]
-            # canny_image = np.concatenate([canny_image, canny_image, canny_image], axis=2)
+            canny_image = np.concatenate([canny_image, canny_image, canny_image], axis=2)
             canny_pil_image = Image.fromarray(canny_image)
             # img_target = self.pipe("overcast weather", image=canny_img).images[0]
             
@@ -504,7 +511,7 @@ class LiDARNeRF(torch.nn.Module):
                 batch_size=1,
                 num_images_per_prompt=1,
                 device=self.device,
-                dtype=torch.float16,
+                dtype=torch.float32,
                 do_classifier_free_guidance=True,
                 guess_mode=False,
             )
@@ -513,14 +520,12 @@ class LiDARNeRF(torch.nn.Module):
             t = torch.randint(
                 self.min_step,
                 self.max_step + 1,
-                (latents.shape[0],),
+                (latents_init.shape[0],),
                 dtype=torch.long,
                 device=self.device,
             )
 
-            text_encoder_lora_scale = (
-                self.pipe.cross_attention_kwargs.get("scale", None) if self.pipe.cross_attention_kwargs is not None else None
-            )
+            text_encoder_lora_scale = (None)
             prompt_embeds, negative_prompt_embeds = self.pipe.encode_prompt(
                 "snowy weather",
                 self.device,
@@ -539,15 +544,12 @@ class LiDARNeRF(torch.nn.Module):
 
             # 5. Prepare timesteps #! Use this
             num_infer_steps = t #! Maybe tune later
-            timesteps, num_inference_steps = self.pipe.retrieve_timesteps(self.pipe.scheduler,
-                                                                          num_infer_steps,
-                                                                          self.device,
-                                                                          t)
+            timesteps, num_inference_steps = self.pipe.scheduler.timesteps, t
             num_timesteps = len(timesteps)
 
             # 6. Prepare latent variables (add noise to existing latents)
-            noise = torch.randn_like(latents).to(self.device)
-            latents = self.pipe.scheduler.add_noise(latents, noise, t)
+            noise = torch.randn_like(latents_init).to(self.device)
+            latents = self.pipe.scheduler.add_noise(latents_init, noise, t)
 
             controlnet = self.pipe.controlnet
 
@@ -568,7 +570,7 @@ class LiDARNeRF(torch.nn.Module):
             controlnet_cond_scale = 1.0
             cond_scale = controlnet_cond_scale * controlnet_keep[t] #! potential recheck
 
-            down_block_res_samples, mid_block_res_sample = self.controlnet(
+            down_block_res_samples, mid_block_res_sample = controlnet(
                     control_model_input,
                     t,
                     encoder_hidden_states=controlnet_prompt_embeds,
@@ -584,7 +586,7 @@ class LiDARNeRF(torch.nn.Module):
                 t,
                 encoder_hidden_states=prompt_embeds,
                 timestep_cond=None,
-                cross_attention_kwargs=self.pipe.cross_attention_kwargs,
+                cross_attention_kwargs=(None),
                 down_block_additional_residuals=down_block_res_samples,
                 mid_block_additional_residual=mid_block_res_sample,
                 added_cond_kwargs=(None),
@@ -603,7 +605,7 @@ class LiDARNeRF(torch.nn.Module):
             grad = torch.nan_to_num(grad)
 
             # target function to minimize
-            targets = (nerf_rgb + grad).detach()
+            targets = (latents + grad).detach()
 
         # if training, compute the losses and do backward
         # Do SDS loss based on diffusion output
@@ -614,23 +616,24 @@ class LiDARNeRF(torch.nn.Module):
 
             # compute stage 1 rgb loss, remove dynamic objs
             dyn_mask = input_dict['img_dyn_mask'].flatten()[ind_pixel_valid]
-            loss_rgb_1 = self.nerf_rgb_loss_weight * self.l2loss(rgb[~dyn_mask],
-                                                                 img_rgb_gt[ind_pixel_valid][~dyn_mask])
-            sds_loss = 0.5 * F.mse_loss(nerf_rgb.float(), targets, reduction='mean')
+            # loss_rgb_1 = self.nerf_rgb_loss_weight * self.l2loss(rgb[~dyn_mask],
+                                                                #  img_rgb_gt[ind_pixel_valid][~dyn_mask])
 
-            dict_loss['loss_rgb_1'] = loss_rgb_1
+            sds_loss = 0.5 * F.mse_loss(latents_init.float(), targets, reduction='mean')
+
+            # dict_loss['loss_rgb_1'] = loss_rgb_1
             dict_loss['loss_sds'] = sds_loss
-            dict_loss['loss_depth_error'] = loss_d
 
-            total_loss = loss_rgb_1 + sds_loss + loss_d
+            # total_loss = loss_rgb_1 + sds_loss + loss_d
+            total_loss = sds_loss + loss_d
 
         out = {
             #    'img_rgb_gan': clip_values(img_rgb_gan).reshape(self.img_size, self.img_size, 3),
-               'img_depth_inv': img_depth_inv.reshape(self.img_size, self.img_size, 1),
-               'img_depth_l_inv': img_depth_l_inv.reshape(self.img_size, self.img_size, 1),
-               'img_depth_error': img_depth_error.reshape(self.img_size, self.img_size, 1),
-               'img_rgb_nerf': img_rgb_nerf,
-               'img_rgb_gt': img_rgb_gt.reshape(self.img_size, self.img_size, 3)}
+               'img_depth_inv': img_depth_inv.reshape(self.img_size, self.img_size, 1).detach(),
+               'img_depth_l_inv': img_depth_l_inv.reshape(self.img_size, self.img_size, 1).detach(),
+               'img_depth_error': img_depth_error.reshape(self.img_size, self.img_size, 1).detach(),
+               'img_rgb_nerf': img_rgb_nerf.detach(),
+               'img_rgb_gt': img_rgb_gt.reshape(self.img_size, self.img_size, 3).detach()}
 
         if training:
             out['dict_loss'] = dict_loss
