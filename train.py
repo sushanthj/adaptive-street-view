@@ -1,8 +1,7 @@
-
 import configparser
 import argparse
 import os
-from src.trainer import Trainer
+from src.trainer2 import Trainer
 
  
 if __name__ == '__main__':
@@ -28,6 +27,8 @@ if __name__ == '__main__':
     setattr(args, 'log_id', cfg['log_id'])
     cfg['name_data'] = str(args.name_data)
     cfg['controlnet'] = 'true'
+    cfg['sd_model'] = '2.1'
+    print(cfg)
 
     trainer = Trainer(cfg, eval_only=args.eval_only)
     trainer.run()
