@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.networks import LiDARNeRF
 from .utils import depth_inv_to_color
 from .optimizer import Adan
+from torch.optim import Adam
 from tqdm import tqdm
 from skimage.metrics import structural_similarity
 
@@ -96,14 +97,15 @@ class Trainer:
 
         # Step 3. Create optimizer and training parameters
         lr = 1e-4
-        self.optimizer = Adan(
-            self.net.parameters(),
-            lr=2*lr,
-            eps=1e-8,
-            weight_decay=2e-5,
-            max_grad_norm=5.0,
-            foreach=False,
-        )
+        # self.optimizer = Adan(
+        #     self.net.parameters(),
+        #     lr=lr,
+        #     eps=1e-8,
+        #     weight_decay=2e-5,
+        #     max_grad_norm=5.0,
+        #     foreach=False,
+        # )
+        self.optimizer = Adam(self.net.parameters(), lr, eps=1e-8, weight_decay=2e-5)
         self.lr_scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lambda iter: 1)
         self.scaler = torch.cuda.amp.GradScaler()
 
@@ -184,8 +186,6 @@ class Trainer:
                         img = (output[key] + 1)/2
                         img[mask] = 0
                         img = img.permute(2, 0, 1).cpu()
-                        import ipdb
-                        ipdb.set_trace()
                         self.log_writer.add_image(f'val_img_{key}/{i}', img, self.num_iter)
 
         for m in self.list_metric:

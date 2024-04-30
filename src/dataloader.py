@@ -13,7 +13,7 @@ def get_data_loader(cfg, name_exp, split):
     dataset = LiDARDataset(cfg, split, name_exp)
     if split == 'train':
         return torch.utils.data.DataLoader(
-            dataset, batch_size=1, shuffle=True, collate_fn=collate_fn)
+            dataset, batch_size=1, shuffle=False, collate_fn=collate_fn)
     else:
         return torch.utils.data.DataLoader(
             dataset, batch_size=1, shuffle=False, collate_fn=collate_fn)

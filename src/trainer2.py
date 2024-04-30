@@ -1,5 +1,7 @@
 import torch
 import os
+
+import torchvision.transforms.functional
 import lpips
 import numpy as np
 import open3d as o3d
@@ -12,6 +14,7 @@ from tqdm import tqdm
 from skimage.metrics import structural_similarity
 from .sds import SDSLoss
 import torch.nn.functional as F
+from torchvision.transforms.functional import to_pil_image
 import cv2
 from PIL import Image
 
@@ -92,10 +95,14 @@ class Trainer:
         self.exp_name = exp_name
 
         self.use_controlnet = True if cfg["sd_model"]=="controlnet" else False
+        self.use_depth_instead_of_canny = True if cfg["controlnet_input"]=="depth" else False
         print("Using controlnet: ", self.use_controlnet)
+        if self.use_depth_instead_of_canny:
+            print("Using depth image as conditioning instead of canny")
 
         self.sds = SDSLoss(sd_model=cfg["sd_model"], device=self.device)
         # self.init_sds_loss("victorian street very photorealistic")
+        # self.init_sds_loss("post apocalypse scene, extremely detailed, photorealistic")
         self.init_sds_loss("streets covered in snow")
 
         # for evaluation
@@ -124,19 +131,42 @@ class Trainer:
         print(self.prompt_embeds.shape, self.negative_prompt_embeds.shape)
     
 
-    def get_sds_loss(self, nerf_img, use_canny=True):
+    def get_sds_loss(self, nerf_img, nerf_depth_img, use_canny, use_depth_for_controlnet):
         prompt_embeds = self.prompt_embeds
         negative_prompt_embeds = self.negative_prompt_embeds
-        # img_for_canny = nerf_img.clone().detach()
+        # prepare nerf_img
         nerf_img = (nerf_img.permute(2,0,1) + 1)/2
         nerf_img = nerf_img.unsqueeze(0)
         nerf_img = F.interpolate(nerf_img, scale_factor=(2,2))
+        # prepare nerf depth img
+        nerf_depth_img = nerf_depth_img.repeat(1,1,3).permute(2,0,1).unsqueeze(0)
+        nerf_depth_img = F.interpolate(nerf_depth_img, scale_factor=(2,2))
+        # prepare both for controlnet_input
         img_for_canny = nerf_img.clone().detach()[0]
+        img_for_controlnet_depth = nerf_depth_img.clone().detach()[0]
         log_nerf_img = img_for_canny.permute(1,2,0).cpu().numpy()
+        log_depth_img = img_for_controlnet_depth.permute(1,2,0).cpu().numpy()
         latents = self.sds.encode_imgs(nerf_img)
 
-        # canny edge detection
-        if use_canny:
+        if use_depth_for_controlnet:
+            H, W = img_for_controlnet_depth.shape[-1], img_for_controlnet_depth.shape[-2]
+            depth_PIL = to_pil_image(img_for_controlnet_depth)
+            depth_cond = self.sds.prepare_image(
+                image = depth_PIL,
+                width = W,
+                height = H,
+                batch_size = 1,
+                num_images_per_prompt = 1,
+                device = self.device,
+                dtype = self.sds.precision_t,
+                do_classifier_free_guidance = True,
+                guess_mode = False
+            )
+            control_img_embeds = depth_cond
+            canny_pil = None
+        
+        # else use canny on rgb nerf image
+        elif use_canny:
             _, H, W = img_for_canny.shape
             img_for_canny = (img_for_canny.permute(1, 2, 0).cpu().numpy()*255).astype(np.uint8)
             low_threshold = 96
@@ -161,7 +191,7 @@ class Trainer:
         # grayscale = cv2.cvtColor(img_for_canny, cv2.COLOR)
 
         loss = self.sds.sds_loss(latents, prompt_embeds, negative_prompt_embeds, control_img_embeds)
-        return loss, canny_pil, log_nerf_img
+        return loss, canny_pil, log_nerf_img, log_depth_img
 
     def run(self):
 
@@ -176,9 +206,9 @@ class Trainer:
                     with torch.no_grad():
                         self.run_val(self.dataloader_val, e)
 
-                self.run_train(self.dataloader_train)
+                self.run_train(self.dataloader_train, e)
 
-    def run_train(self, dataloader):
+    def run_train(self, dataloader, epoch):
         print('train')
         for i, batch in tqdm(enumerate(dataloader)):
             self.optimizer.zero_grad()
@@ -191,18 +221,31 @@ class Trainer:
             self.num_iter += 1
             output = self.net(data_dict, training=True)
 
-            sds_loss, control_img, log_nerf_img = self.get_sds_loss(output["img_rgb_nerf"], self.use_controlnet)
+            sds_loss, control_img, log_nerf_img, log_nerf_depth_img = self.get_sds_loss(output["img_rgb_nerf"],
+                                                                    output["img_depth_l_inv"],
+                                                                    self.use_controlnet,
+                                                                    self.use_depth_instead_of_canny)
             depth_loss = output["dict_loss"]["loss_lidar_depth"]
             loss = sds_loss + depth_loss
+
+            # Save all train_views
+            if epoch % 5 == 0:
+                log_nerf_img = cv2.resize(log_nerf_img*255, (256,256))
+                log_nerf_depth_img = cv2.resize(log_nerf_depth_img*255, (256,256))
+                if not os.path.exists(f"./logs/train_image_logs"):
+                    os.makedirs(f"./logs/train_image_logs")
+                cv2.imwrite(f"logs/train_image_logs/epoch_{epoch}_nerf_img_{i}.png", log_nerf_img[:,:,::-1])
+                cv2.imwrite(f"logs/train_image_logs/epoch_{epoch}_nerf_depth_img_{i}.png", log_nerf_depth_img[:,:,::-1])
+                cv2.imwrite(f"logs/train_image_logs/gt_img_{i}.png", (output["img_rgb_gt"].detach().cpu().numpy()[:,:,::-1]+1)/2*255)
 
             # Save Images
             if self.num_iter % self.iter_log_interval == 0:
                 for k in output['dict_loss'].keys():
                     self.log_writer.add_scalar(f'train/{k}', output['dict_loss'][k], self.num_iter)
                 print(f"Loss iter {i}: sds_loss: {sds_loss.item()}, depth_loss: {depth_loss.item()}")
-                log_nerf_img = cv2.resize(log_nerf_img*255, (256,256))
-                cv2.imwrite("logs/train_image_logs/nerf_img_curr.png", log_nerf_img[:,:,::-1])
-                cv2.imwrite("logs/train_image_logs/gt_img_curr.png", (output["img_rgb_gt"].detach().cpu().numpy()[:,:,::-1]+1)/2*255)
+                # log_nerf_img = cv2.resize(log_nerf_img*255, (256,256))
+                # cv2.imwrite("logs/train_image_logs/nerf_img_curr.png", log_nerf_img[:,:,::-1])
+                # cv2.imwrite("logs/train_image_logs/gt_img_curr.png", (output["img_rgb_gt"].detach().cpu().numpy()[:,:,::-1]+1)/2*255)
                 if control_img is not None:
                     control_img.save("logs/train_image_logs/canny_image.png")
 

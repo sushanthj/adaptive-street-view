@@ -119,11 +119,11 @@ class LiDARNeRF(torch.nn.Module):
     def load_weights(self, path_models, exp_name, pretrained_path=None):
 
         print('***********************************')
-        if os.path.exists(pretrained_path):
-            print('Start from an assigned pretrained model : ', pretrained_path)
-            ckp = torch.load(pretrained_path)
-            self.load_ckp(ckp)
-            return 0
+        # if os.path.exists(pretrained_path):
+        #     print('Start from an assigned pretrained model : ', pretrained_path)
+        #     ckp = torch.load(pretrained_path)
+        #     self.load_ckp(ckp)
+        #     return 0
 
         path_ckp = os.path.join(path_models, f'{exp_name}')
         name_ckp = f'latest_*.ckp'

@@ -74,7 +74,7 @@ class SDSLoss:
         return latents
     
 
-    def sds_loss(self, latents, prompt_embeds, negative_prompt_embeds=None, control_img_embeds=None, guidance_scale=70.5, grad_scale=1, cond_scale=5.0):
+    def sds_loss(self, latents, prompt_embeds, negative_prompt_embeds=None, control_img_embeds=None, guidance_scale=20, grad_scale=1, cond_scale=5.0):
         t = torch.randint(
             self.min_step,
             self.max_step + 1,
