@@ -43,6 +43,11 @@ def get_exp_name_data(cfg):
     return cfg['name_data']
 
 
+def get_exp_name_prefix(cfg):
+
+    return cfg['exp_name_prefix']
+
+
 def compute_metrics(rgb_est, rgb_gt):
 
     # assume input pixel value range with -1~1
@@ -70,6 +75,8 @@ class Trainer:
 
         exp_name_data = get_exp_name_data(cfg)
         exp_name_model = get_exp_name_model(cfg)
+        self.exp_name_prefix = get_exp_name_prefix(cfg)
+        self.guidance_scale = float(cfg['guidance_scale'])
 
         exp_name = f"{exp_name_data}_{exp_name_model}_{cfg['log_id'][:4]}"
         
@@ -80,7 +87,8 @@ class Trainer:
 
         self.net = LiDARNeRF(cfg, map_lidar).to(cfg['device'])
         e_start = self.net.load_weights(cfg['path_weights'], exp_name, pretrained_path=cfg['path_pretrained_weight'])
-        exp_name = f"{exp_name_data}_{exp_name_model}_{cfg['log_id'][:4]}_sds"
+        # exp_name = f"{exp_name_data}_{exp_name_model}_{cfg['log_id'][:4]}_sds"
+        exp_name = f"{self.exp_name_prefix}_{exp_name_data}_{exp_name_model}_{cfg['log_id'][:4]}_sds"
         self.log_writer = SummaryWriter(os.path.join(cfg['path_log'], 'logs', exp_name))
 
         self.e_start = e_start
@@ -94,16 +102,17 @@ class Trainer:
         self.dataloader_val = get_data_loader(cfg, exp_name_data, 'val')
         self.exp_name = exp_name
 
-        self.use_controlnet = True if cfg["sd_model"]=="controlnet" else False
+        self.use_controlnet_with_canny = True if cfg["sd_model"]=="controlnet" else False
         self.use_depth_instead_of_canny = True if cfg["controlnet_input"]=="depth" else False
-        print("Using controlnet: ", self.use_controlnet)
+        print("Using controlnet with canny: ", self.use_controlnet_with_canny)
         if self.use_depth_instead_of_canny:
             print("Using depth image as conditioning instead of canny")
 
         self.sds = SDSLoss(sd_model=cfg["sd_model"], device=self.device)
         # self.init_sds_loss("victorian street very photorealistic")
         # self.init_sds_loss("post apocalypse scene, extremely detailed, photorealistic")
-        self.init_sds_loss("streets covered in snow")
+        # self.init_sds_loss("streets covered in snow")
+        self.init_sds_loss(cfg["text_prompt"])
 
         # for evaluation
 
@@ -131,7 +140,7 @@ class Trainer:
         print(self.prompt_embeds.shape, self.negative_prompt_embeds.shape)
     
 
-    def get_sds_loss(self, nerf_img, nerf_depth_img, use_canny, use_depth_for_controlnet):
+    def get_sds_loss(self, nerf_img, nerf_depth_img, use_canny, use_depth_for_controlnet, guidance_scale):
         prompt_embeds = self.prompt_embeds
         negative_prompt_embeds = self.negative_prompt_embeds
         # prepare nerf_img
@@ -190,7 +199,8 @@ class Trainer:
             canny_pil = None
         # grayscale = cv2.cvtColor(img_for_canny, cv2.COLOR)
 
-        loss = self.sds.sds_loss(latents, prompt_embeds, negative_prompt_embeds, control_img_embeds)
+        loss = self.sds.sds_loss(latents, prompt_embeds, negative_prompt_embeds,
+                                 control_img_embeds, guidance_scale=guidance_scale)
         return loss, canny_pil, log_nerf_img, log_depth_img
 
     def run(self):
@@ -223,20 +233,20 @@ class Trainer:
 
             sds_loss, control_img, log_nerf_img, log_nerf_depth_img = self.get_sds_loss(output["img_rgb_nerf"],
                                                                     output["img_depth_l_inv"],
-                                                                    self.use_controlnet,
-                                                                    self.use_depth_instead_of_canny)
+                                                                    self.use_controlnet_with_canny,
+                                                                    self.use_depth_instead_of_canny, self.guidance_scale)
             depth_loss = output["dict_loss"]["loss_lidar_depth"]
             loss = sds_loss + depth_loss
 
             # Save all train_views
-            if epoch % 5 == 0:
+            if epoch % 3 == 0:
                 log_nerf_img = cv2.resize(log_nerf_img*255, (256,256))
                 log_nerf_depth_img = cv2.resize(log_nerf_depth_img*255, (256,256))
-                if not os.path.exists(f"./logs/train_image_logs"):
-                    os.makedirs(f"./logs/train_image_logs")
-                cv2.imwrite(f"logs/train_image_logs/epoch_{epoch}_nerf_img_{i}.png", log_nerf_img[:,:,::-1])
-                cv2.imwrite(f"logs/train_image_logs/epoch_{epoch}_nerf_depth_img_{i}.png", log_nerf_depth_img[:,:,::-1])
-                cv2.imwrite(f"logs/train_image_logs/gt_img_{i}.png", (output["img_rgb_gt"].detach().cpu().numpy()[:,:,::-1]+1)/2*255)
+                if not os.path.exists(f"./logs/train_image_logs/{self.exp_name_prefix}"):
+                    os.makedirs(f"./logs/train_image_logs/{self.exp_name_prefix}")
+                cv2.imwrite(f"logs/train_image_logs/{self.exp_name_prefix}/epoch_{epoch}_nerf_img_{i}.png", log_nerf_img[:,:,::-1])
+                cv2.imwrite(f"logs/train_image_logs/{self.exp_name_prefix}/epoch_{epoch}_nerf_depth_img_{i}.png", log_nerf_depth_img[:,:,::-1])
+                cv2.imwrite(f"logs/train_image_logs/{self.exp_name_prefix}/gt_img_{i}.png", (output["img_rgb_gt"].detach().cpu().numpy()[:,:,::-1]+1)/2*255)
 
             # Save Images
             if self.num_iter % self.iter_log_interval == 0:
