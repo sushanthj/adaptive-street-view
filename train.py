@@ -12,7 +12,7 @@ if __name__ == '__main__':
     parser.add_argument('--exp_name_prefix',  type=str, required=True)
     parser.add_argument('--text_prompt',  type=str, required=True)
     parser.add_argument('--guidance_scale',  type=float, required=True)
-    parser.add_argument('--sd_model',  type=str, required=True)
+    parser.add_argument('--sd_model',  type=str, required=True) # options = "2.1" or "controlnet"
     parser.add_argument('--controlnet_input', type=str, required=True)
     parser.add_argument('--seq_id',  type=str, default='seq2')
     parser.add_argument('--name_config',  type=str,  required=True)

@@ -102,11 +102,20 @@ class Trainer:
         self.dataloader_val = get_data_loader(cfg, exp_name_data, 'val')
         self.exp_name = exp_name
 
-        self.use_controlnet_with_canny = True if cfg["sd_model"]=="controlnet" else False
-        self.use_depth_instead_of_canny = True if cfg["controlnet_input"]=="depth" else False
-        print("Using controlnet with canny: ", self.use_controlnet_with_canny)
-        if self.use_depth_instead_of_canny:
-            print("Using depth image as conditioning instead of canny")
+        self.use_controlnet = True if cfg["sd_model"]=="controlnet" else False
+        self.use_canny = True if cfg["controlnet_input"]=="canny" else False
+        self.use_depth = True if cfg["controlnet_input"]=="depth" else False
+        if self.use_controlnet:
+            print("Running with ControlNet")
+            if self.use_depth:
+                print("Using depth image as conditioning")
+            elif self.use_canny:
+                print("Using Canny image as conditioning")
+            else:
+                import sys
+                sys.exit(0)
+        else:
+            print("Running on Simple SDS Loss (no ControlNet)")
 
         self.sds = SDSLoss(sd_model=cfg["sd_model"], device=self.device)
         # self.init_sds_loss("victorian street very photorealistic")
@@ -140,7 +149,7 @@ class Trainer:
         print(self.prompt_embeds.shape, self.negative_prompt_embeds.shape)
     
 
-    def get_sds_loss(self, nerf_img, nerf_depth_img, use_canny, use_depth_for_controlnet, guidance_scale):
+    def get_sds_loss(self, nerf_img, nerf_depth_img, guidance_scale):
         prompt_embeds = self.prompt_embeds
         negative_prompt_embeds = self.negative_prompt_embeds
         # prepare nerf_img
@@ -157,7 +166,7 @@ class Trainer:
         log_depth_img = img_for_controlnet_depth.permute(1,2,0).cpu().numpy()
         latents = self.sds.encode_imgs(nerf_img)
 
-        if use_depth_for_controlnet:
+        if self.use_controlnet and self.use_depth:
             H, W = img_for_controlnet_depth.shape[-1], img_for_controlnet_depth.shape[-2]
             depth_PIL = to_pil_image(img_for_controlnet_depth)
             depth_cond = self.sds.prepare_image(
@@ -175,7 +184,7 @@ class Trainer:
             canny_pil = None
         
         # else use canny on rgb nerf image
-        elif use_canny:
+        elif self.use_controlnet and self.use_canny:
             _, H, W = img_for_canny.shape
             img_for_canny = (img_for_canny.permute(1, 2, 0).cpu().numpy()*255).astype(np.uint8)
             low_threshold = 96
@@ -233,13 +242,12 @@ class Trainer:
 
             sds_loss, control_img, log_nerf_img, log_nerf_depth_img = self.get_sds_loss(output["img_rgb_nerf"],
                                                                     output["img_depth_l_inv"],
-                                                                    self.use_controlnet_with_canny,
-                                                                    self.use_depth_instead_of_canny, self.guidance_scale)
+                                                                    self.guidance_scale)
             depth_loss = output["dict_loss"]["loss_lidar_depth"]
             loss = sds_loss + depth_loss
 
             # Save all train_views
-            if epoch % 3 == 0:
+            if epoch == 6:
                 log_nerf_img = cv2.resize(log_nerf_img*255, (256,256))
                 log_nerf_depth_img = cv2.resize(log_nerf_depth_img*255, (256,256))
                 if not os.path.exists(f"./logs/train_image_logs/{self.exp_name_prefix}"):

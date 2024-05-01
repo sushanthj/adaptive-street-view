@@ -8,7 +8,7 @@ class SDSLoss:
     def __init__(self, sd_model="controlnet", device="cuda:0", t_range=[0.02, 0.98], output_dir="output"):
         if sd_model == "2.1":
             sd_model_key = "stabilityai/stable-diffusion-2-1-base"
-        elif sd_model == "controlnet":
+        if sd_model == "controlnet":
             controlnet_key = "lllyasviel/sd-controlnet-canny"
             # controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-canny", torch_dtype=torch.float32, use_safetensors=True)
         
