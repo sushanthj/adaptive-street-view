@@ -85,6 +85,7 @@ class Trainer:
         print('Load lidar map from', path_lidar_map)
         map_lidar = np.asarray(o3d.io.read_point_cloud(path_lidar_map).points)
 
+        # pass only LiDAR points as input
         self.net = LiDARNeRF(cfg, map_lidar).to(cfg['device'])
         e_start = self.net.load_weights(cfg['path_weights'], exp_name, pretrained_path=cfg['path_pretrained_weight'])
         # exp_name = f"{exp_name_data}_{exp_name_model}_{cfg['log_id'][:4]}_sds"

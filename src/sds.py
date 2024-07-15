@@ -11,7 +11,7 @@ class SDSLoss:
         if sd_model == "controlnet":
             controlnet_key = "lllyasviel/sd-controlnet-canny"
             # controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-canny", torch_dtype=torch.float32, use_safetensors=True)
-        
+
         self.H = 512
         self.W = 512
         self.num_inference_steps = 50
@@ -28,7 +28,7 @@ class SDSLoss:
             del controlnet
             self.controlnet = sd_pipe.controlnet
             self.prepare_image = sd_pipe.prepare_image
-        
+
         self.vae = sd_pipe.vae
         self.tokenizer = sd_pipe.tokenizer
         self.text_encoder = sd_pipe.text_encoder
@@ -46,7 +46,7 @@ class SDSLoss:
         self.min_step = int(self.num_train_timesteps * t_range[0])
         self.max_step = int(self.num_train_timesteps * t_range[1])
         self.alphas = self.scheduler.alphas_cumprod.to(self.device)  # for convenient access
-    
+
 
     @torch.no_grad()
     def get_prompt_embeddings(self, prompt):
@@ -62,7 +62,7 @@ class SDSLoss:
             clip_skip=None,
         )
         return prompt_embeds, negative_prompt_embeds
-    
+
     def encode_imgs(self, img):
         # check the shape of the image should be 512x512
         assert img.shape[-2:] == (512, 512), "Image shape should be 512x512"
@@ -72,7 +72,7 @@ class SDSLoss:
         posterior = self.vae.encode(img).latent_dist
         latents = posterior.sample() * self.vae.config.scaling_factor
         return latents
-    
+
 
     def sds_loss(self, latents, prompt_embeds, negative_prompt_embeds=None, control_img_embeds=None, guidance_scale=20, grad_scale=1, cond_scale=5.0):
         t = torch.randint(
@@ -112,13 +112,13 @@ class SDSLoss:
                 return_dict=False
             )[0]
 
-            
+
             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
             noise_pred = noise_pred_uncond + guidance_scale*(noise_pred_text - noise_pred_uncond)
             w = 1 - self.alphas[t]
             g = grad_scale*w*(-noise_pred + noise)
             target = latents+g
-        
+
         loss = F.mse_loss(latents, target) / 2.0
         return loss
 
