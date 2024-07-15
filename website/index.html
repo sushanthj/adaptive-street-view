@@ -1,0 +1,488 @@
+<!DOCTYPE HTML>
+<!--
+	Read Only by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
+<html>
+	<head>
+		<title>Adaptive Street View</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+		<link rel="stylesheet" href="assets/css/main.css" />
+		<script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+		<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+		<!-- <link href="https://cdnjs.cloudflare.com/ajax/libs/bulma/1.0.0/css/bulma.min.css" rel="stylesheet"> -->
+		<script src="https://cdn.jsdelivr.net/npm/bulma-slider@2.0.5/dist/js/bulma-slider.min.js"></script>
+		<link href="https://cdn.jsdelivr.net/npm/bulma-slider@2.0.5/dist/css/bulma-slider.min.css" rel="stylesheet">
+		<script src="https://cdn.jsdelivr.net/npm/bulma-carousel@4.0.24/dist/js/bulma-carousel.min.js"></script>
+		<link href="https://cdn.jsdelivr.net/npm/bulma-carousel@4.0.24/dist/css/bulma-carousel.min.css" rel="stylesheet">
+	</head>
+	<body class="is-preload">
+
+		<!-- Header -->
+			<section id="header">
+				<header>
+					<span class="image avatar"><img src="images/logo.gif" alt="" /></span>
+					<h4 id="logo"><a href="#">Adaptive Street View</a></h4>
+					<p>
+						using Neural Radiance Fields
+					</p>
+				</header>
+				<nav id="nav">
+					<ul>
+						<li><a href="#one" class="active">1. Introduction</a>
+						</li>
+						<li><a href="#two">2. Proposed Idea</a>
+							<ul class="alt">
+								<li><a href="#twoone"> 2.1 NeRF pretraining</a></li>
+								<li><a href="#twotwo"> 2.2 Diffusion guided optimization</a></li>
+							</ul>
+						</li>
+						<li><a href="#three">3. Evaluation and Experiments</a>
+							<ul class="alt">
+								<!-- <li><a href="#threeone"> Results </a></li> -->
+								<li><a href="#threetwo"> 3.2 Comparison with baseline</a></li>
+								<li><a href="#threethree"> 3.3 Quantitative comparison</a></li>
+								<li><a href="#threefour"> 3.4 ControlNet - canny + depth</a></li>
+								<li><a href="#threefive"> 3.5 Guidance scale ablation</a></li>
+							</ul>
+						</li>
+						<li><a href="#four">4. Challenges</a></li>
+						<li><a href="#five">5. Conclusion</a></li>
+					</ul>
+				</nav>
+				<footer>
+					<ul class="icons">
+						<li><a href="https://github.com/sushanthj" class="icon brands fa-github"><span class="label">Github</span></a></li>
+						<li><a href="mailto:sushanth.jayanth@gmail.com" class="icon solid fa-envelope"><span class="label">Email</span></a></li>
+					</ul>
+				</footer>
+			</section>
+
+		<!-- Wrapper -->
+			<div id="wrapper">
+
+				<!-- Main -->
+					<div id="main">
+
+						<!-- One -->
+							<section id="one">
+								<div class="image main" data-position="center">
+									<img src="images/main_image3.png" alt="" />
+								</div>
+								<div class="container">
+									<h4>1. Introduction</h4>
+									<p>
+									In recent times, there has been a notable increase in the collection of street-level data facilitated by self-driving
+									vehicles. The reconstruction and generation of novel views from such data is of practical significance in driving simulation,
+									data synthesis, and applications in augmented and virtual reality. Even though there has been notable progress in novel
+									view synthesis (NVS) for confined/indoor scenes, large-scale outdoor settings, including street views and parks,
+									remain a persistent challenge. Despite being vast and publicly available, self-driving datasets like KITTI and Argoverse2
+									still remain under-explored in a large scale NeRF setting.
+									</p>
+									<p>
+									We explore the application of Neural Radiance Fields to generate novel street views, similar to the likes of Google
+									Street View but without the need for special data acquisition and curation by leveraging the vast and open-source self-
+									driving datasets like Argoverse2 and KITTI. To deal with the sparse camera views and biased straight line trajectories
+									of the viewpoints in these datasets we use LiDAR maps as depths priors to help the NeRF model converge faster
+									while also learning point embeddings for each location of the LiDAR point cloud. Furthermore, we propose diffusion
+									guided optimization to modify these embeddings allowing us to render custom textures in the scene from user-defined
+									prompts (shown below Figure 1) while maintaining geometric consistency across views. We test our approach on the Argoverse2 dataset and
+									provide a qualitative as well as a quantitative comparison of the rendered scene against the ground truth images
+									</p>
+									<p></p>
+
+
+									<figure>
+									<div class="row">
+										<div class="col-6">
+											<div id="frame6" class="bal-container-small">
+			
+												<div class="bal-after">
+													<img src="images/gt_comb1.png">
+													<div class="bal-afterPosition afterLabel">
+														Ground Truth
+													</div>
+												</div>
+												
+												<div class="bal-before">
+													<div class="bal-before-inset">
+													<img src="images/nerf_comb1.png">
+													<div class="bal-beforePosition beforeLabel">
+														Streets covered in snow
+													</div>
+													</div>
+												</div>
+												
+												<div class="bal-handle">
+													<span class=" handle-left-arrow"></span>
+													<span class="handle-right-arrow"></span>
+												</div>
+										
+											</div>
+
+										</div>
+										<div class="col-6">
+											<div id="frame29" class="bal-container-small">
+			
+												<div class="bal-after">
+													<img src="images/gt_comb2.png">
+													<div class="bal-afterPosition afterLabel">
+														Ground Truth
+													</div>
+												</div>
+												
+												<div class="bal-before">
+													<div class="bal-before-inset">
+													<img src="images/nerf_comb2.png">
+													<div class="bal-beforePosition beforeLabel">
+														Streets covered in snow
+													</div>
+													</div>
+												</div>
+												
+												<div class="bal-handle">
+													<span class=" handle-left-arrow"></span>
+													<span class="handle-right-arrow"></span>
+												</div>
+										
+											</div>
+
+										</div>
+									</div>
+									<figcaption>
+										<b>Figure 1. </b> A qualitative comparison between ground truth and renderings from our method using the prompt<br> <em>"streets covered in snow"</em>.
+										The rendered images are blurry due to low resolution of the NeRF we used in our training.
+									</figcaption>
+									</figure>
+
+									<p></p>
+
+									<h5 id="onetwo">Related Work </h5>
+									<p>
+										<b>Large Scale NeRFs: </b> Existing work on large scale NeRFs for outdoor and unbounded scenes as present in these
+										self-driving datasets includes MipNerf360 [1] and BlockNerf [2]. However, these approaches require a large number of dense and overlapping camera
+										views during training which is lacking in these common self-driving datasets. The problem of sparse views during
+										NeRF training has been dealt with by using depth information from multi-view stereo in [3, 4] and also by using LiDAR depth
+										in [5] <br>
+
+										<b>Conditional GANs: </b> Another problem with these common camera-LiDAR datasets is the presence of noise in LiDAR points. [4]
+										proposed a 3d point cloud refinement but as demonstrated in [5], image refinement on the rendered NeRF image using
+										conditional GANs such as Pix2Pix also leads to high quality images. We follow the later approach in our pipeline. <br>
+
+										<b>Diffusion guided optimization: </b> Stable diffusion [8] can create novel images guided by user prompts. Using stable
+										diffusion generated images to train a NeRF was first seen in DreamFusion [9]. It used Score Distillation Sampling (SDS)
+										to create a loss function that could provide gradients to the NeRF volume and finetuned it to match the diffusion
+										generated views. We use this idea of SDS loss and optimize the point embeddings for the LiDAR points as described in the next section.
+									</p>
+								</div>
+							</section>
+
+						<!-- Two -->
+							<section id="two">
+								<div class="container">
+									<h4>2. Proposed Idea</h4>
+									<figure>
+										<div class="image">
+											<img src="images/image21.png" alt="" />
+										</div>
+										<figcaption>
+											<b>Figure 2.</b> Proposed pipeline for generating adaptive street views using NeRF pretraining followed by diffusion guided optimization
+										</figcaption>
+									</figure>
+									<p></p>
+									<p>
+										For the renderings of the street views to be adaptive to user prompts, the underlying neural radiance field representation
+										of the scene must have localized tunable embeddings. PointNeRF introduced the idea of embedding features into
+										each point of the point cloud representing the scene and we assign per-point features (\( f\)) directly to the
+										available LiDAR point cloud. These features can then be aggregated along the rays from a novel viewpoint for volume
+										rendering. However, this point-based volume rendering is not
+										suitable for these open-source camera LiDAR datasets due to noise in the raw point cloud, non-uniform illuminations
+										and other weather effects. Rather than refining the 3D point cloud during training to tackle these issues, we directly
+										perform image refinement on the rendered image using a cGAN. We call this NeRF-pretraining in
+										our approach and this process of volume rendering followed by image refinement is end-to-
+										end trainable using an image-to-image translation GAN and outperforms the 3D point cloud refinement strategy as. 
+										NeRF-pretraining helps in defining a good prior for the point embeddings as well as for the scene
+										geometry. We then perform diffusion guided optimization using SDS loss to finetune these point embeddings
+										and generate new textures in the scene. The overall pipeline is shown in the figure above.
+									</p>
+									<h5 id="twoone">2.1 NeRF pretraining</h5>
+									<p>
+										Starting from LiDAR-image pairs in a sequence from the Argoverse2 dataset, all LiDAR maps from the sequence
+										are merged to have a single point cloud representation of the scene and point embeddings are assigned to each point
+										(resulting in neural points). The camera poses in the sequence then act as training views for the NeRF. We then perform
+										point-based volume rendering as described in the PointNeRF paper followed by image refinement using pix2pix on the rendered image.
+										The NeRF MLPs and the pix2pix generator is then trained in an end-to-end manner using a combination of L1 and adversarial losses.
+										<figure>
+											<div class="image center">
+												<img src="images/LIDAR_NeRF_pipeline.png" alt="" />
+											</div>
+											<figcaption>
+												<b>Figure 3.</b> Spatial interpolation to aggregate the LiDAR map embeddings (smaller dots \(p_i\) ) onto volume
+												rendering ray samples (larger blue dots \(x_j\) ). Followed by pix2pix to refine the volume rendering output. Image credits: [5]
+											</figcaption>
+
+										</figure>
+									</p>
+
+									<h5 id="twotwo">2.2 Diffusion guided optimization</h5>
+									<p>
+										After pretraining, For generating customized views of the streets, we propose the idea of finetuning the LiDAR point embeddings using
+										Score Distillation Sampling (SDS). We use SDS loss to optimize the point embeddings such that the resultant NeRF
+										renderings maximize the likelihood of being in the distribution of images defined by the user prompt.
+										A rendered image from our pretrained NeRF is first noised upto a randomly sampled timestep \(t\). We then denoise it using DDIM and use the denoising gradients given by (\( \tilde{\epsilon_\phi} (x; t, e) - \epsilon \)) to optimize the underlying NeRF parameters (point embeddings \(f\) in our case), where \( \tilde{\epsilon_\phi} (x;\ t, e) \) is the classifier-free guidance score obtained by a linear combination of unconditional (prompt-free) and conditional scores. We experiment with different noise prediction functions \( \epsilon_\phi(x;t,e) \) such as stable-diffusion v2.1 and ControlNet v1.5 with canny (edge conditioning) and depth controls.
+									</p>
+									<p>
+										<em>
+										Novel renderings obtained from our method on selected sequences from the Argoverse2 dataset using different prompts is shown in the results section.
+										</em>
+									</p>
+
+								</div>
+							</section>
+
+							<section id="three">
+								<div class="container">
+									<h4>3. Evaluation and Experiments</h4>
+									<p>
+										We use the open-source camera-LiDAR dataset - Argoverse2 to obtain real-world camera views and LiDAR maps.
+										Each sequence from the dataset consist of 3 camera views that
+										have associated 20Hz lidar scans, poses and images. Every sequence has 155 training and 20 validation images.
+										We evaluate our methods on 6 sequences from the dataset and present visual results on 2 of them.
+									</p>
+									<h5 id="threeone">3.1 Novel renderings of the streets based on user-prompts</h5>
+									<figure>
+										<div class="image">
+											<img src="images/gifs/snow_seq1/combined_seq_left.gif" alt="" />
+										</div>
+										<div class="image">
+											<img src="images/gifs/snow_seq1/combined_seq_front.gif" alt="" />
+										</div>
+										<div class="image">
+											<img src="images/gifs/snow_seq1/combined_seq_right.gif" alt="" />
+										</div>
+										<figcaption>
+											<b>Figure 4. </b> Top row shows the ground truth images from sequence 1. <br> Bottom row shows the renderings from our method using the prompt
+											<em>"streets covered in snow"</em> on the same street.
+										</figcaption>
+									</figure>
+									<p></p>
+
+									<figure>
+										<div class="image">
+											<img src="images/gifs/apocalypse_seq2/combined_seq_left.gif" alt="" />
+										</div>
+										<div class="image">
+											<img src="images/gifs/apocalypse_seq2/combined_seq_front.gif" alt="" />
+										</div>
+										<div class="image">
+											<img src="images/gifs/apocalypse_seq2/combined_seq_right.gif" alt="" />
+										</div>
+										<figcaption>
+											<b>Figure 5. </b> Top row shows the ground truth images from sequence 2. <br> Bottom row shows the renderings from our method using the prompt
+											<em>"post apocalypse scene"</em> on the same street.
+										</figcaption>
+									</figure>
+									<p></p>
+
+									<h5 id="threetwo">3.2 Comparison with the baseline</h5>
+									<p>
+										Prior to this work, there has been limited exploration of diffusion guided NeRF optimization for outdoor
+										datasets and with user-defined thematic effects. Since our method leverages strong depth priors from the LiDAR data we choose our baseline to be
+										ControlNet (conditioned on depth masks) based editing of individual images based on the same user-prompt.
+										of the sequence. We compare our method with the baseline on the same sequences and show that our method generates geometrically consistent renderings.
+										<figure>
+											<div class="image">
+												<img src="images/baseline.png" alt="" />
+											</div>
+											<figcaption>
+												<b>Figure 6. </b> ControlNet outputs (bottom row) eventhough photorealistic are inconsistent across views. For example, trees in one view become lamps in
+												another and amount of snow on a car and even car geometry changes with every frame.
+
+											</figcaption>
+										</figure>
+									</p>
+									<h5 id="threethree">3.3 Quantitative Results</h5>
+									<p>
+										We experiment with three different noise prediction functions \(\epsilon_\phi(x;\ t,e)\) for SDS loss. Here we present a quantitative
+										comparison between the rendered images resulting from finetuning the point embeddings based on these functions and in the next section
+										we present a qualitative comparison (Figure 7).
+										Since most metrics for image quality depend on a comparison between ground truth and rendered image, we cannot
+										infer a direct comparative improvement from the absolute values of LPIPS or SSIM scores when there exists no
+										ground truth for our post-processed scene (’streets covered in snow’). Hence we use LPIPS and SSIM only as a
+										relative measure of qualitative deviations caused by these fine-tuning approaches. Empirically, the increase in LPIPS
+										for the prompt ’streets covered in snow’ corresponds to more snow in the scene. The quantitative results for each
+										approach is highlighted in Table 1 and Table 2 for the data sequences 1 through 6. 
+										<figure>
+											<div class="image">
+												<img src="images/table_ssim.png" alt="" />
+											</div>
+											<figcaption>
+												<b>Table 1. </b> SSIM score on 6 sequences from the dataset. Rendered image is compared to RGB ground
+												truth to determine the structural similarity between the images.
+
+											</figcaption>
+										</figure>
+
+										<figure>
+											<div class="image">
+												<img src="images/table_lpips.png" alt="" />
+											</div>
+											<figcaption>
+												<b>Table 2. </b> LPIPS score on 6 sequences from the dataset. Rendered image is compared against the RGB
+												ground truth image to determine the perceptual similarity between the images.
+
+											</figcaption>
+										</figure>
+									</p>
+									<p>
+										<b>A high SSIM</b> then indicates the ‘similarity’ between rendered image (with snow) and ground truth (without snow).
+										SSIM can also be viewed as a rough measure of how much SDS loss changes the scene. Sequence 3 in Table 1 shows
+										that the SSIM value of ControlNet (canny) output is higher than stable diffusion 2.1 and ControlNet (depth). The left
+										half of Fig 7 also shows how the canny image has not added much snow and remains more similar to the ground truth.
+										<br>
+										<b>A high LPIPS</b> score indicates the ‘dissimilarity’ between rendering and ground truth. Analysing sequences 3 and 6
+										(left and right half respectively of Fig 7) shows that the lack of snow added in the ControlNet (canny) images reflects
+										in the LPIPS score being lower and therefore less ’dissimilar’ to the ground truth.
+									</p>
+									<h5 id="threefour">3.4 ControlNet - canny and depth</h5>
+									<p>
+										Since the SDS loss derived from stable diffusion is purely directed by the text prompt, we only
+										optimize for only a few iterations (6 - 10) to prevent oversaturation. To overcome
+										this limitation, we experiment with additional conditioning with a reference image (depth image or canny edge image)
+										to help with 
+										better convergence. This conditioning was carried out by using ControlNet as a noise prediction function and few ablations were run to compare the
+										results with the simple SDS loss from stable diffusion 2.1. However, due to high noise in canny edge images, and
+										inconsistencies in the pre-trained NeRF depth maps, the conditioning seems to have been insufficient and caused the
+										NeRF optimization to be poor when using ControlNet guidance for SDS loss. The figure below shows detailed comparisons.
+										<figure>
+											<div class="image">
+												<img src="images/full_comp.png" alt="" />
+											</div>
+											<figcaption>
+												<b>Figure 7. </b> Comparison between Stable Diffusion 2.1, ControlNet with Canny Conditioning and
+												ControlNet with depth conditioning for the <em> "prompt streets covered in snow" </em> on sequence 3 and 4										
+											</figcaption>
+										</figure>
+									</p>
+									<h5 id="threefive">3.5 Guidance scale ablation</h5>
+									<p>
+										We ablate the guidance scale parameter during the SDS loss optimization for the same prompt on different sequences. A guidance scale of around 70 sufficiently
+										changes the texture of the scene while maintaining geometric consistency and scene structure. A higher guidance scale saturates the scene.
+										<figure>
+											<div class="image">
+												<img src="images/guidance_ablation.png" alt="" />
+											</div>
+											<figcaption>
+												<b>Figure 8. </b> Ablation of guidance scale for the prompt <em> "streets covered in snow" </em> on sequence 5.
+											</figcaption>
+										</figure>
+
+									</p>
+								</div>
+							</section>
+							<section id="four">
+								<div class="container">
+									<h4>4. Challenges and Limitations</h4>
+									<p>
+										Self-driving datasets are extremely large in size and handling such vast amounts of data is often challenging. Even
+										though the data in conveniently divided into sequences, pre-processing these sequences as detailed in [5] is a tedious
+										task. Oftentimes, these sequences also consist of dynamic objects such as moving vehicles and pedestrians which is
+										not suitable for a NeRF based application like ours and needs masking during preprocessing. Compute constraints also
+										forced us to work with low resolution NeRF renders. Also, since our approach relies on assigning point embeddings
+										only to LiDAR points, elements of the scene such as the sky, top of tall trees and buildings have no representation in
+										the underlying NeRF resulting in black/gray pixels after rendering. <br><br>
+										Additionally, the stable diffusion 2.1 guided SDS loss fails on prompts like <em>"buildings on fire"</em> as it simply makes the entire
+										scene red in color. An example of this failure case is seen in Figure. 8 where the entire scene is turned red instead of just
+										the buildings. This limits our approach to effects which have global scene changes like weather based effects.
+										<figure>
+											<div class="image">
+												<img src="images/failure_case.png" alt="" />
+											</div>
+											<figcaption>
+												<b> Figure 9. </b> NeRF optimzation failure on prompt <em>"buildings on fire"</em>
+											</figcaption>
+										</figure>
+									</p>
+								</div>
+							</section>
+
+							<section id="five">
+								<div class="container">
+									<h4>5. Conclusion </h4>
+									<p>
+										In our work, we proposed a framework for generating novel and customizable street views by leveraging a self-driving
+										dataset. Using our method, we eliminate the need for specialized data collection, manual image-alignment and hand-
+										crafted algorithms for stitching street images together. We use a PointNeRF based representation of the 3D scene
+										and provide a way of tuning the point embeddings for achieving a desired rendering of the scene. While our framework
+										is modular and generalized, there is still scope for improvement. We currently do not model the view dependent effects
+										and using a PointNet like architecture can help add view dependence in the color MLP and yield
+										better results. In the current pipeline, LiDAR points rigidly define the geometry of the scene but their location can also
+										be optimized during training in future work.
+									</p>
+
+								</div>
+
+							</section>
+
+							<section id="six">
+								<div class="container">
+									<h4>6. References</h4>
+									<p>
+										[1] J. T. Barron, B. Mildenhall, D. Verbin, P. P. Srinivasan, and P. Hedman, “Mip-nerf 360: Unbounded anti-aliased
+										neural radiance fields,” CVPR, 2022.<br>
+										[2] M. Tancik, V. Casser, X. Yan, S. Pradhan, B. Mildenhall, P. Srinivasan, J. T. Barron, and H. Kretzschmar,
+										“Block-nerf: Scalable large scene neural view synthesis,” in IEEE Conference on Computer Vision and Pattern
+										Recognition (CVPR), 2022, pp. 1, 2, 4, 5, 6, 7, 8.<br>
+										[3] K. Deng, A. Liu, J.-Y. Zhu, and D. Ramanan, “Depth-supervised nerf: Fewer views and faster training for free,”
+										2021. [Online]. Available: https://arxiv.org/abs/2107.02791<br>
+										[4] Q. Xu, Z. Xu, J. Philip, S. Bi, Z. Shu, K. Sunkavalli, and U. Neumann, “Point-nerf: Point-based neural radiance
+										fields,” in IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2022, pp. 1, 2, 3, 4, 6, 8.<br>
+										[5] M.-F. Chang, A. Sharma, M. Kaess, and S. Lucey, “Neural Radiance Fields with LiDAR Maps,” in International
+										Conference on Computer Vision, 2023.<br>
+										[6] B. Wilson, W. Qi, T. Agarwal, J. Lambert, J. Singh, S. Khandelwal, B. Pan, R. Kumar, A. Hartnett, J. K. Pontes,
+										D. Ramanan, P. Carr, and J. Hays, “Argoverse 2: Next generation datasets for self-driving perception and fore-
+										casting,” in Conference on Neural Information Processing Systems (NeurIPS), 2021.<br>
+										[7] P. Isola, J.-Y. Zhu, T. Zhou, and A. A. Efros, “Image-to-image translation with conditional adversarial networks,”
+										2018.<br>
+										[8] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer, “High-resolution image synthesis with latent
+										diffusion models,” 2022.<br>
+										[9] B. Poole, A. Jain, J. T. Barron, and B. Mildenhall, “Dreamfusion: Text-to-3d using 2d diffusion,” 2022.
+									</p>
+								</div>
+							</section>
+
+					</div>
+
+				<!-- Footer -->
+					<section id="footer">
+						<div class="container">
+							<ul class="copyright">
+								<li>Design: <a href="http://html5up.net">HTML5 UP</a></li>
+							</ul>
+						</div>
+					</section>
+
+			</div>
+
+		<!-- Scripts -->
+			<script src="assets/js/jquery.min.js"></script>
+			<script src="assets/js/jquery.scrollex.min.js"></script>
+			<script src="assets/js/jquery.scrolly.min.js"></script>
+			<script src="assets/js/browser.min.js"></script>
+			<script src="assets/js/breakpoints.min.js"></script>
+			<script src="assets/js/util.js"></script>
+			<script src="assets/js/main.js"></script>
+			<script src="assets/js/slider.js"></script>
+			<script>
+				new BeforeAfter({
+					id: '#frame6'
+				});
+				new BeforeAfter({
+					id: '#frame29'
+				});
+			</script>
+
+	</body>
+</html>
